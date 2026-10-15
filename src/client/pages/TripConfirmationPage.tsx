@@ -9,10 +9,22 @@ export function TripConfirmationPage(props: { coordinator: Coordinator }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    setTrip(null);
     void props.coordinator.openDraft(id).then((res) => {
-      if (res.ok) setTrip(res.data);
-      else setError(res.error.message);
+      if (cancelled) return;
+      if (res.ok) {
+        setTrip(res.data);
+        return;
+      }
+      // Superseded loads are expected when a newer openDraft wins; do not surface them.
+      if (res.error.code === "CONTEXT_MISMATCH") return;
+      setError(res.error.message);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [id, props.coordinator]);
 
   if (error) return <p className="error">{error}</p>;

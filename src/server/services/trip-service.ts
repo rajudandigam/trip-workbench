@@ -19,6 +19,7 @@ import {
   validatePatchMerge,
   validateTripDraft,
 } from "../../domain/trip-rules.js";
+import { parseTripPatch } from "../../domain/trip-schemas.js";
 import type { SessionActor } from "./session-service.js";
 
 type TripRow = {
@@ -264,8 +265,13 @@ export class TripService {
     patch: TripPatch,
   ): Promise<CommandReceipt> {
     assertCommandId(commandId);
+    const schema = parseTripPatch(patch);
+    if (!schema.ok) {
+      throw httpError(422, "INVALID_INPUT", schema.message, { fieldIssues: schema.fieldIssues });
+    }
+    const safePatch = schema.data;
     const action = "update";
-    const inputHash = canonicalHash({ action, expectedRevision, patch });
+    const inputHash = canonicalHash({ action, expectedRevision, patch: safePatch });
 
     return withTransaction(this.db, async (client) => {
       const existing = await this.findReceipt(client, actor, tripId, commandId);
@@ -295,11 +301,11 @@ export class TripService {
       }
 
       const current = mapFields(row);
-      const issues = validatePatchMerge(current, patch);
+      const issues = validatePatchMerge(current, safePatch);
       if (issues.length) {
         throw httpError(422, "INVALID_INPUT", "Patch failed validation.", { fieldIssues: issues });
       }
-      const merged = mergePatch(current, patch);
+      const merged = mergePatch(current, safePatch);
       if (fieldsEqual(current, merged)) {
         const receipt: CommandReceipt = {
           commandId,

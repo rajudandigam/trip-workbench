@@ -11,10 +11,16 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    setValidation(null);
     void (async () => {
       const opened = await props.coordinator.openDraft(id);
+      if (cancelled) return;
       if (!opened.ok) {
-        setError(opened.error.message);
+        if (opened.error.code !== "CONTEXT_MISMATCH") {
+          setError(opened.error.message);
+        }
         return;
       }
       const state = props.coordinator.getState();
@@ -23,13 +29,16 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
         return;
       }
       const res = await props.coordinator.validateSaved();
-      if (!res) return;
+      if (cancelled || !res) return;
       if (!res.ok) {
         setError(res.error.message);
         return;
       }
       setValidation(res.data);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [id, props.coordinator]);
 
   const draft = props.coordinator.getState().savedDraft;

@@ -33,9 +33,21 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
   }, [props.coordinator]);
 
   useEffect(() => {
+    let cancelled = false;
+    props.coordinator.enterEditor(id);
+    setProposal(null);
+    setError(null);
     void props.coordinator.openDraft(id).then((res) => {
-      if (!res.ok) setError(res.error.message);
+      if (cancelled) return;
+      if (!res.ok && res.error.code !== "CONTEXT_MISMATCH") {
+        setError(res.error.message);
+      }
     });
+    return () => {
+      cancelled = true;
+      props.coordinator.leaveEditor();
+      setProposal(null);
+    };
   }, [id, props.coordinator]);
 
   const state = props.coordinator.getState();
@@ -101,7 +113,7 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
       return;
     }
     const res = await props.coordinator.applyAgentPatch(
-      proposal.patch,
+      proposal.patch as never,
       proposal.boundRevision,
       newCommandId(),
     );
@@ -137,6 +149,22 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
           </span>
         </div>
         {state.message ? <div className="notice">{state.message}</div> : null}
+        {state.pendingOutcome ? (
+          <div className="notice row">
+            <span>Unresolved mutation {state.pendingOutcome.commandId}</span>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => {
+                void props.coordinator.recheckOutcome().then((res) => {
+                  if (!res.ok) setError(res.error.message);
+                });
+              }}
+            >
+              Recheck outcome
+            </button>
+          </div>
+        ) : null}
         {error ? <p className="error">{error}</p> : null}
 
         <div className="row">

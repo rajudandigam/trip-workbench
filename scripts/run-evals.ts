@@ -1,230 +1,336 @@
 import "./load-env.js";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { startTestApp, login, authedJson } from "../tests/api/helpers.js";
+import { parseTripPatch } from "../src/domain/trip-schemas.js";
+import type { TripFields } from "../src/domain/types.js";
 
-type SeedCase = {
+type CaseResult = {
   id: string;
-  title?: string;
-  tags?: string[];
-  kind?: string;
-  layer?: string;
-  prompt?: string;
+  layer: string;
+  status: "pass" | "fail" | "blocked" | "not_run";
+  assertions?: string[];
+  reason?: string;
+  evidence?: string;
 };
 
-/**
- * Translates harness-neutral cases into executable deterministic checks where possible.
- * Native browser / live-model cases are labeled blocked or not_run with reasons.
- */
+function runVitestFilter(filter: string): boolean {
+  const result = spawnSync(
+    "npx",
+    ["vitest", "run", "--config", "vitest.config.ts", "tests/unit", "-t", filter],
+    { encoding: "utf8" },
+  );
+  return result.status === 0;
+}
+
 async function main() {
-  const seedPath = path.resolve("evals/cases.seed.json");
-  const seed = JSON.parse(fs.readFileSync(seedPath, "utf8")) as { cases?: SeedCase[] };
-  const cases = seed.cases || [];
+  const seed = JSON.parse(fs.readFileSync("evals/cases.seed.json", "utf8")) as {
+    cases: Array<{ id: string }>;
+  };
+  const caseIds = seed.cases.map((c) => c.id);
   const outDir = path.resolve("evals/evidence");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const results: Array<Record<string, unknown>> = [];
   const app = await startTestApp();
-  try {
-    for (const c of cases) {
-      const layer = (c.layer || "").toLowerCase();
-      const id = c.id.toUpperCase();
+  const results: CaseResult[] = [];
 
-      if (
-        layer.includes("native_model") ||
-        layer.includes("native_deterministic") ||
-        id.startsWith("MODEL-") ||
-        id.startsWith("WEBMCP-") ||
-        id.includes("TOOL-CONTEXT") ||
-        id.includes("LIFECYCLE")
-      ) {
+  type ApiRunner = () => Promise<CaseResult>;
+  const apiRegistry: Record<string, ApiRunner> = {
+    "INPUT-CROSS-FIELD": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-cross-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const before = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`);
+      const bad = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: 1,
+          commandId: "eval-cross-patch",
+          patch: { destination: "SFO" },
+        }),
+      });
+      const after = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`);
+      const ok =
+        bad.status === 422 &&
+        after.body.data?.revision === before.body.data?.revision &&
+        (after.body.data?.fields as TripFields | undefined)?.destination == null;
+      return {
+        id: "INPUT-CROSS-FIELD",
+        layer: "api_db",
+        status: ok ? "pass" : "fail",
+        assertions: ["422 on same-airport patch", "revision unchanged", "destination unchanged"],
+      };
+    },
+    "INPUT-SHAPE": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-shape-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const bad = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: 1,
+          commandId: "eval-shape-patch",
+          patch: { purpose: 42 },
+        }),
+      });
+      const schema = parseTripPatch({ purpose: 42 });
+      return {
+        id: "INPUT-SHAPE",
+        layer: "api_db",
+        status: bad.status === 422 && !schema.ok ? "pass" : "fail",
+        assertions: ["purpose:42 rejected"],
+      };
+    },
+    "ACCESS-BOUNDARY": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-access-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const observer = await login(app.baseUrl, "observer@northstar.demo");
+      const mutate = await authedJson(
+        app.baseUrl,
+        observer.cookie,
+        observer.csrfToken,
+        `/api/trips/${tripId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            expectedRevision: 1,
+            commandId: "eval-access-patch",
+            patch: { purpose: "nope" },
+          }),
+        },
+      );
+      const casey = await login(app.baseUrl, "casey@cedar.demo");
+      const cross = await authedJson(app.baseUrl, casey.cookie, casey.csrfToken, `/api/trips/${tripId}`);
+      return {
+        id: "ACCESS-BOUNDARY",
+        layer: "api_db",
+        status: mutate.status === 403 && cross.status === 404 ? "pass" : "fail",
+        assertions: ["observer 403", "cross-tenant 404"],
+      };
+    },
+    "IDEMPOTENT-RETRY": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-idem-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const body = {
+        expectedRevision: 1,
+        commandId: "eval-idem-patch",
+        patch: { destination: "JFK", purpose: "customer workshop" },
+      };
+      const first = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      const second = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      return {
+        id: "IDEMPOTENT-RETRY",
+        layer: "api_db",
+        status: first.body.ok && second.body.ok && second.body.data?.toRevision === 2 ? "pass" : "fail",
+        assertions: ["exact retry returns same toRevision"],
+      };
+    },
+    "AI-REVIEW-APPLY": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-ai-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const proposal = await authedJson(
+        app.baseUrl,
+        alex.cookie,
+        alex.csrfToken,
+        `/api/trips/${tripId}/proposal`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            brief:
+              "Prepare a round trip from SFO to JFK, departing November 12, 2026 and returning November 15, 2026, for one traveler in economy. Purpose: customer workshop.",
+            expectedRevision: 1,
+            clientEditVersion: 0,
+            briefVersion: 1,
+          }),
+        },
+      );
+      const patch = (proposal.body.data as { proposal?: { patch?: TripFields } } | undefined)?.proposal
+        ?.patch;
+      const applied = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ expectedRevision: 1, commandId: "eval-ai-apply", patch }),
+      });
+      const after = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`);
+      const fields = after.body.data?.fields as TripFields | undefined;
+      const ok =
+        Boolean(proposal.body.ok) &&
+        Boolean(applied.body.ok) &&
+        fields?.destination === "JFK" &&
+        fields?.purpose === "customer workshop" &&
+        after.body.data?.revision === 2;
+      return {
+        id: "AI-REVIEW-APPLY",
+        layer: "api_db",
+        status: ok ? "pass" : "fail",
+        assertions: ["fixture proposal applied to saved state"],
+      };
+    },
+    "DATE-CALENDAR": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-date-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const bad = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: 1,
+          commandId: "eval-date-patch",
+          patch: { departureDate: "2026-02-30" },
+        }),
+      });
+      return {
+        id: "DATE-CALENDAR",
+        layer: "api_db",
+        status: bad.status === 422 ? "pass" : "fail",
+        assertions: ["2026-02-30 rejected"],
+      };
+    },
+    "DRAFT-PARTIAL": async () => {
+      const alex = await login(app.baseUrl, "alex@northstar.demo");
+      const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
+        method: "POST",
+        body: JSON.stringify({ commandId: "eval-partial-create" }),
+      });
+      const tripId = String(created.body.data?.tripId);
+      const patched = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: 1,
+          commandId: "eval-partial-patch",
+          patch: { destination: "JFK" },
+        }),
+      });
+      return {
+        id: "DRAFT-PARTIAL",
+        layer: "api_db",
+        status: patched.body.ok && patched.body.data?.toRevision === 2 ? "pass" : "fail",
+        assertions: ["destination-only patch saved"],
+      };
+    },
+  };
+
+  const adapterRegistry: Record<string, { filter: string; assertions: string[] }> = {
+    "RACE-INFLIGHT": {
+      filter: "preserves human edits made during an agent update",
+      assertions: ["saved/local field merge during flight"],
+    },
+    "CANCEL-PREDISPATCH": {
+      filter: "pre-aborted agent update sends zero PATCH",
+      assertions: ["CANCELLED", "zero PATCH"],
+    },
+    "CANCEL-POSTDISPATCH": {
+      filter: "reconciles via command receipt after network loss",
+      assertions: ["OUTCOME_UNKNOWN then receipt recovery"],
+    },
+    "IDEMPOTENT-OLD-RECEIPT": {
+      filter: "does not regress UI when a historical receipt arrives",
+      assertions: ["UI revision does not regress"],
+    },
+    "RACE-PROPOSAL": {
+      filter: "marks Gemini proposal stale after local edits",
+      assertions: ["proposal stale after local edit"],
+    },
+  };
+
+  const blockedNative = new Set([
+    "MODEL-EXACT",
+    "MODEL-AMBIGUOUS",
+    "MODEL-PURCHASE",
+    "WEBMCP-UNSUPPORTED",
+    "TOOL-CONTEXT",
+    "LIFECYCLE",
+    "RACE-UNSAVED",
+    "RACE-CAS",
+  ]);
+  const blockedLocalAi = new Set(["LOCAL-CONSENT", "LOCAL-LATE-CREATE"]);
+
+  try {
+    for (const id of caseIds) {
+      if (apiRegistry[id]) {
+        try {
+          results.push(await apiRegistry[id]());
+        } catch (error) {
+          results.push({
+            id,
+            layer: "api_db",
+            status: "fail",
+            reason: (error as Error).message,
+          });
+        }
+        continue;
+      }
+      if (adapterRegistry[id]) {
+        const entry = adapterRegistry[id];
+        const ok = runVitestFilter(entry.filter);
         results.push({
-          id: c.id,
+          id,
+          layer: "adapter",
+          status: ok ? "pass" : "fail",
+          assertions: entry.assertions,
+          evidence: "vitest controlled substitute (not native WebMCP)",
+        });
+        continue;
+      }
+      if (blockedNative.has(id)) {
+        results.push({
+          id,
+          layer: "native",
           status: "blocked",
           reason:
-            "Requires Chrome document.modelContext and/or a login-capable native browser eval harness",
+            "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified",
         });
         continue;
       }
-
-      if (id.includes("SUMMAR") || layer.includes("optional_local_ai") || id.startsWith("LOCAL-")) {
+      if (blockedLocalAi.has(id)) {
         results.push({
-          id: c.id,
+          id,
+          layer: "optional_local_ai",
           status: "blocked",
-          reason: "On-device Summarizer API not present in this Node eval host",
+          reason: "On-device Summarizer not available in this Node host — unverified",
         });
         continue;
       }
-
-      try {
-        const alex = await login(app.baseUrl, "alex@northstar.demo");
-
-        if (
-          id.includes("OBSERVER") ||
-          id.includes("PERMISSION") ||
-          id.includes("AUTHZ") ||
-          id.includes("ACCESS-BOUNDARY")
-        ) {
-          const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
-            method: "POST",
-            body: JSON.stringify({ commandId: `eval-${c.id}-create` }),
-          });
-          const tripId = String(created.body.data?.tripId);
-          const observer = await login(app.baseUrl, "observer@northstar.demo");
-          const mutate = await authedJson(
-            app.baseUrl,
-            observer.cookie,
-            observer.csrfToken,
-            `/api/trips/${tripId}`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                expectedRevision: 1,
-                commandId: `eval-${c.id}-patch`,
-                patch: { purpose: "x" },
-              }),
-            },
-          );
-          results.push({
-            id: c.id,
-            status: mutate.status === 403 ? "pass" : "fail",
-            httpStatus: mutate.status,
-          });
-          continue;
-        }
-
-        if (id.includes("TENANT") || id.includes("CROSS")) {
-          const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
-            method: "POST",
-            body: JSON.stringify({ commandId: `eval-${c.id}-create` }),
-          });
-          const tripId = String(created.body.data?.tripId);
-          const casey = await login(app.baseUrl, "casey@cedar.demo");
-          const cross = await authedJson(
-            app.baseUrl,
-            casey.cookie,
-            casey.csrfToken,
-            `/api/trips/${tripId}`,
-          );
-          results.push({
-            id: c.id,
-            status: cross.status === 404 ? "pass" : "fail",
-            httpStatus: cross.status,
-          });
-          continue;
-        }
-
-        if (
-          id.includes("PROPOSAL") ||
-          id.includes("FIXTURE") ||
-          id.includes("GEMINI") ||
-          id.includes("AI-") ||
-          id.includes("EXACT") ||
-          id.includes("AMBIG")
-        ) {
-          const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
-            method: "POST",
-            body: JSON.stringify({ commandId: `eval-${c.id}-create` }),
-          });
-          const tripId = String(created.body.data?.tripId);
-          const brief =
-            c.prompt ||
-            "Prepare a round trip from SFO to JFK, departing November 12, 2026 and returning November 15, 2026, for one traveler in economy. Purpose: customer workshop.";
-          const proposal = await authedJson(
-            app.baseUrl,
-            alex.cookie,
-            alex.csrfToken,
-            `/api/trips/${tripId}/proposal`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                brief,
-                expectedRevision: 1,
-                clientEditVersion: 0,
-                briefVersion: 1,
-              }),
-            },
-          );
-          const body = proposal.body as {
-            ok?: boolean;
-            data?: { mode?: string; proposal?: { patch?: { destination?: string }; clarifications?: unknown[] } };
-          };
-          const wantsAmbiguous = brief.toLowerCase().includes("springfield");
-          const ok = wantsAmbiguous
-            ? Boolean(body.ok && (body.data?.proposal?.clarifications?.length || 0) > 0)
-            : Boolean(body.ok && body.data?.proposal?.patch?.destination === "JFK");
-          results.push({
-            id: c.id,
-            status: ok ? "pass" : "fail",
-            mode: body.data?.mode,
-          });
-          continue;
-        }
-
-        if (
-          id.includes("SUBMIT") ||
-          id.includes("PERSIST") ||
-          id.includes("REVISION") ||
-          id.includes("IDEMPOT") ||
-          layer.includes("deterministic") ||
-          layer.includes("api")
-        ) {
-          const created = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, "/api/trips", {
-            method: "POST",
-            body: JSON.stringify({ commandId: `eval-${c.id}-create` }),
-          });
-          const tripId = String(created.body.data?.tripId);
-          const patched = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              expectedRevision: 1,
-              commandId: `eval-${c.id}-patch`,
-              patch: {
-                destination: "JFK",
-                departureDate: "2026-11-12",
-                returnDate: "2026-11-15",
-                purpose: "customer workshop",
-              },
-            }),
-          });
-          const replay = await authedJson(app.baseUrl, alex.cookie, alex.csrfToken, `/api/trips/${tripId}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              expectedRevision: 1,
-              commandId: `eval-${c.id}-patch`,
-              patch: {
-                destination: "JFK",
-                departureDate: "2026-11-12",
-                returnDate: "2026-11-15",
-                purpose: "customer workshop",
-              },
-            }),
-          });
-          results.push({
-            id: c.id,
-            status: patched.body.ok && replay.body.ok && replay.body.data?.toRevision === 2 ? "pass" : "fail",
-          });
-          continue;
-        }
-
-        results.push({
-          id: c.id,
-          status: "not_run",
-          reason: `No deterministic mapping for layer=${c.layer || "unknown"}`,
-        });
-      } catch (error) {
-        results.push({
-          id: c.id,
-          status: "fail",
-          reason: (error as Error).message,
-        });
-      }
+      results.push({
+        id,
+        layer: "unmapped",
+        status: "not_run",
+        reason: "No exact case-ID runner implemented",
+      });
     }
   } finally {
     await app.close();
   }
 
   const summary = {
+    supersededEvidenceNote:
+      "Earlier eval-summary claiming 18 passes used inaccurate substring mappings and is not proof.",
     total: results.length,
     pass: results.filter((r) => r.status === "pass").length,
     fail: results.filter((r) => r.status === "fail").length,

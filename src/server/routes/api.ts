@@ -10,8 +10,26 @@ import { AIRPORTS, CABINS, POLICY_VERSION } from "../../domain/types.js";
 import { calendarDateInTimezone } from "../../domain/clock.js";
 import { createProposal } from "../adapters/gemini.js";
 import { inspectRun, inspectStep } from "../adapters/inspect.js";
+import {
+  CommandIdSchema,
+  ExpectedRevisionSchema,
+  HttpTripPatchBodySchema,
+  zodErrorToHttp,
+  zodIssuesToFieldIssues,
+} from "../../domain/trip-schemas.js";
 
 function sendError(res: import("express").Response, error: unknown) {
+  if (error instanceof z.ZodError) {
+    res.status(422).json({
+      ok: false,
+      error: {
+        code: "INVALID_INPUT",
+        message: "Request failed validation.",
+        fieldIssues: zodIssuesToFieldIssues(error),
+      },
+    });
+    return;
+  }
   const err = error as {
     status?: number;
     code?: string;
@@ -19,7 +37,20 @@ function sendError(res: import("express").Response, error: unknown) {
     fieldIssues?: unknown;
     currentRevision?: number;
     retry?: string;
+    name?: string;
   };
+  if (err.name === "ZodError") {
+    const httpErr = zodErrorToHttp(error as z.ZodError);
+    res.status(httpErr.status).json({
+      ok: false,
+      error: {
+        code: httpErr.code,
+        message: httpErr.message,
+        fieldIssues: httpErr.fieldIssues,
+      },
+    });
+    return;
+  }
   const status = err.status || 500;
   res.status(status).json({
     ok: false,
@@ -161,7 +192,7 @@ export function createApiRouter(deps: {
 
   router.post("/trips", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const body = z.object({ commandId: z.string().min(1).max(128) }).parse(req.body);
+      const body = z.object({ commandId: CommandIdSchema }).strict().parse(req.body);
       const receipt = await trips.create(req.actor!, body.commandId);
       res.status(201).json({ ok: true, data: receipt });
     } catch (error) {
@@ -180,19 +211,13 @@ export function createApiRouter(deps: {
 
   router.patch("/trips/:id", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const body = z
-        .object({
-          expectedRevision: z.number().int().positive(),
-          commandId: z.string().min(1).max(128),
-          patch: z.record(z.string(), z.unknown()),
-        })
-        .parse(req.body);
+      const body = HttpTripPatchBodySchema.parse(req.body);
       const receipt = await trips.patch(
         req.actor!,
         String(req.params.id),
         body.expectedRevision,
         body.commandId,
-        body.patch as never,
+        body.patch,
       );
       res.json({ ok: true, data: receipt });
     } catch (error) {
@@ -202,7 +227,10 @@ export function createApiRouter(deps: {
 
   router.post("/trips/:id/validate", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const body = z.object({ expectedRevision: z.number().int().positive() }).parse(req.body);
+      const body = z
+        .object({ expectedRevision: ExpectedRevisionSchema })
+        .strict()
+        .parse(req.body);
       const result = await trips.validate(req.actor!, String(req.params.id), body.expectedRevision);
       res.json({ ok: true, data: result });
     } catch (error) {
@@ -214,10 +242,11 @@ export function createApiRouter(deps: {
     try {
       const body = z
         .object({
-          expectedRevision: z.number().int().positive(),
+          expectedRevision: ExpectedRevisionSchema,
           reviewedPolicyVersion: z.string().min(1),
-          commandId: z.string().min(1).max(128),
+          commandId: CommandIdSchema,
         })
+        .strict()
         .parse(req.body);
       const receipt = await trips.submit(
         req.actor!,

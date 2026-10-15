@@ -21,8 +21,15 @@ export function App() {
     });
   }, [coordinator]);
 
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
   async function handleLogout() {
-    await coordinator.logout();
+    setLogoutError(null);
+    const res = await coordinator.logout();
+    if (!res.ok) {
+      setLogoutError(res.error.message);
+      return;
+    }
     setSession(null);
     navigate("/login");
   }
@@ -57,6 +64,11 @@ export function App() {
           ) : null}
         </div>
       </header>
+      {logoutError ? (
+        <p className="error" role="alert">
+          Sign-out failed: {logoutError}
+        </p>
+      ) : null}
 
       <Routes>
         <Route

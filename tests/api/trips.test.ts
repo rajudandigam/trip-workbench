@@ -65,6 +65,16 @@ describe("trip API", () => {
     expect(stale.status).toBe(409);
     expect(stale.body.error?.code).toBe("REVISION_CONFLICT");
 
+    const staleValidate = await authedJson(
+      app.baseUrl,
+      cookie,
+      csrfToken,
+      `/api/trips/${tripId}/validate`,
+      { method: "POST", body: JSON.stringify({ expectedRevision: 1 }) },
+    );
+    expect(staleValidate.status).toBe(409);
+    expect(staleValidate.body.error?.code).toBe("REVISION_CONFLICT");
+
     const validated = await authedJson(
       app.baseUrl,
       cookie,

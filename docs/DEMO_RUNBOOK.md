@@ -32,3 +32,7 @@ Requires a browser with `document.modelContext`. Open an editable owned draft, t
 ## On-device summary
 
 Use **Summarize brief on this device**. If unavailable, the UI explains the gap and does not auto-send the brief to the cloud.
+
+## Uncertain mutation recovery
+
+If a tool or save loses its response after dispatch, the editor may show an unresolved command with **Recheck outcome**. That looks up the original command receipt; it does not invent a new commandId. Native WebMCP / live model demos remain a separate manual phase.
