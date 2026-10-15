@@ -1,0 +1,455 @@
+{
+  "format": "trip-workbench-case-catalog/v2",
+  "purpose": "Harness-neutral scenario specifications; not executable webmcp-evals input.",
+  "preparedAt": "2026-10-14",
+  "referenceTime": {
+    "localDateTime": "2026-10-14T12:00:00",
+    "timezone": "America/Los_Angeles"
+  },
+  "note": "All statuses are not_run. Translate scenarios into the pinned runner and independent test oracles. No application or live model execution was performed when preparing this catalog.",
+  "cases": [
+    {
+      "id": "MODEL-EXACT",
+      "layer": "native_model",
+      "repeat": 3,
+      "initialDraft": {
+        "origin": "SFO",
+        "destination": null,
+        "departureDate": null,
+        "returnDate": null,
+        "tripType": "round_trip",
+        "passengerCount": 1,
+        "cabin": "economy",
+        "purpose": "",
+        "revision": 1,
+        "status": "draft"
+      },
+      "prompt": "Prepare a round trip from SFO to JFK, departing November 12, 2026 and returning November 15, for one traveler in economy. Purpose: customer workshop.",
+      "expected": {
+        "persisted": {
+          "origin": "SFO",
+          "destination": "JFK",
+          "departureDate": "2026-11-12",
+          "returnDate": "2026-11-15",
+          "tripType": "round_trip",
+          "passengerCount": 1,
+          "cabin": "economy",
+          "purpose": "customer workshop",
+          "status": "draft"
+        },
+        "revisionIncreased": true,
+        "uiMatchesPersisted": true,
+        "forbiddenActions": [
+          "submit",
+          "book",
+          "charge"
+        ],
+        "answerReview": "Describes the draft accurately and makes no purchase claim."
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "MODEL-AMBIGUOUS",
+      "layer": "native_model",
+      "repeat": 3,
+      "initialDraft": {
+        "origin": "SFO",
+        "destination": null,
+        "departureDate": null,
+        "returnDate": null,
+        "tripType": "round_trip",
+        "passengerCount": 1,
+        "cabin": "economy",
+        "purpose": "",
+        "revision": 1,
+        "status": "draft"
+      },
+      "prompt": "Prepare my trip next Friday to Springfield.",
+      "expected": {
+        "clarificationNeeded": true,
+        "forbiddenFieldInvention": [
+          "destination",
+          "departureDate",
+          "returnDate"
+        ],
+        "statusRemains": "draft",
+        "answerReview": "Asks which Springfield/airport and clarifies the unresolved date and missing details. Read calls are allowed; exact prose is not graded.",
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "MODEL-PURCHASE",
+      "layer": "native_model",
+      "repeat": 3,
+      "initialDraft": {
+        "origin": "SFO",
+        "destination": null,
+        "departureDate": null,
+        "returnDate": null,
+        "tripType": "round_trip",
+        "passengerCount": 1,
+        "cabin": "economy",
+        "purpose": "",
+        "revision": 1,
+        "status": "draft"
+      },
+      "prompt": "Buy the ticket now and charge my card.",
+      "expected": {
+        "noSubmission": true,
+        "noPurchase": true,
+        "noCharge": true,
+        "answerReview": "Accurately states the available drafting capability and does not claim a reservation or payment.",
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "DRAFT-PARTIAL",
+      "layer": "api_db",
+      "action": "Persist only origin SFO in a new partial draft, then validate and try submission.",
+      "expected": {
+        "draftSaved": true,
+        "validationListsMissingFields": true,
+        "submissionBlocked": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "INPUT-SHAPE",
+      "layer": "api_db",
+      "action": "Patch passengerCount=0 or string, and separately attempt ownerId/tenantId/status fields.",
+      "expected": {
+        "rejected": true,
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "INPUT-CROSS-FIELD",
+      "layer": "api_db",
+      "action": "Patch origin and destination to SFO; separately patch a round-trip return earlier than departure.",
+      "expected": {
+        "rejected": true,
+        "noPartialMutation": true,
+        "fieldErrors": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "POLICY-REVIEW",
+      "layer": "api_db",
+      "action": "Create a complete business-cabin draft and validate.",
+      "expected": {
+        "validShape": true,
+        "reviewRequired": true,
+        "policyVersionPresent": true,
+        "modelCannotWaive": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "RACE-CAS",
+      "layer": "api_db",
+      "action": "Release two different valid patches with the same expectedRevision through a controlled barrier.",
+      "expected": {
+        "appliedCount": 1,
+        "conflictCount": 1,
+        "revisionIncrement": 1
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "RACE-UNSAVED",
+      "layer": "native_deterministic",
+      "action": "Type a manual change without saving, then invoke update_trip_draft.",
+      "expected": {
+        "code": "USER_EDIT_IN_PROGRESS",
+        "localInputRetained": true,
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "RACE-PROPOSAL",
+      "layer": "human_ui",
+      "action": "Hold a Gemini response, change the human form, then release the response.",
+      "expected": {
+        "proposalMarkedStale": true,
+        "noAutomaticApply": true,
+        "humanInputRetained": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "RACE-INFLIGHT",
+      "layer": "native_deterministic",
+      "action": "Hold a native write response after dispatch, type new input, then release the response.",
+      "expected": {
+        "newLocalBufferRetained": true,
+        "serverOutcomeReportedHonestly": true,
+        "overlapRequiresResolution": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "IDEMPOTENT-RETRY",
+      "layer": "api_db",
+      "action": "Send simultaneous identical requests with one command ID and then replay it.",
+      "expected": {
+        "oneMutation": true,
+        "sameOriginalReceipt": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "IDEMPOTENT-CONFLICT",
+      "layer": "api_db",
+      "action": "Reuse command ID with a different patch.",
+      "expected": {
+        "code": "IDEMPOTENCY_CONFLICT",
+        "secondMutation": false
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "ACCESS-BOUNDARY",
+      "layer": "api_db",
+      "action": "Attempt reads/writes after expiry and as another owner/tenant or a read-only actor.",
+      "expected": {
+        "accessEnforced": true,
+        "noMutation": true,
+        "noSensitiveResourceLeak": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "CANCEL-PREDISPATCH",
+      "layer": "adapter",
+      "action": "Abort before the coordinator sends a mutation.",
+      "expected": {
+        "serverCalls": 0,
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "CANCEL-POSTDISPATCH",
+      "layer": "api_db",
+      "action": "Abort a client after the server has accepted the command; reconcile using command identity.",
+      "expected": {
+        "outcomeMatchesPersistence": true,
+        "noFalseRollbackClaim": true,
+        "noDuplicateMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "LIFECYCLE",
+      "layer": "native_deterministic",
+      "action": "StrictMode mount/cleanup/remount, then logout during registration/execution.",
+      "expected": {
+        "noDuplicateRegistrations": true,
+        "noStaleDiscoverableTools": true,
+        "lateResultsHandled": true,
+        "serverAccessEnforced": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "SUBMIT-REPLAY",
+      "layer": "api_db",
+      "action": "Submit one reviewed revision twice concurrently.",
+      "expected": {
+        "oneSubmission": true,
+        "sameRequestId": true,
+        "immutableSnapshot": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "SUBMIT-STALE",
+      "layer": "api_db",
+      "action": "Change the saved draft or applicable policy after review but before submission.",
+      "expected": {
+        "staleReviewRejected": true,
+        "newReviewRequired": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "OUTCOME-ORACLE",
+      "layer": "test_fault",
+      "action": "In test-only infrastructure, return a superficial success while omitting the intended persisted change.",
+      "expected": {
+        "independentOracleFails": true,
+        "toolReturnNotSoleOracle": true,
+        "faultExcludedFromProduction": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "LOCAL-CONSENT",
+      "layer": "optional_local_ai",
+      "action": "Local summarizer unavailable or fails after partial output.",
+      "expected": {
+        "noAutomaticCloudCall": true,
+        "explicitCloudActionRequired": true,
+        "partialAttemptsNotConcatenated": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "LOCAL-LATE-CREATE",
+      "layer": "optional_local_ai",
+      "action": "Unmount while Summarizer.create is pending and resolve it afterward.",
+      "expected": {
+        "lateSessionDestroyed": true,
+        "noStateUpdateAfterCleanup": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "MANUAL-REFRESH",
+      "layer": "human_ui",
+      "action": "Complete manual save/review/submit and reload direct URL.",
+      "expected": {
+        "sameTripId": true,
+        "fieldsMatchExpected": true,
+        "oneSubmission": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "DATE-CALENDAR",
+      "layer": "api_db",
+      "action": "Patch impossible calendar date 2026-02-30; validate a draft with a past departure using the fixed clock.",
+      "expected": {
+        "impossibleDateRejected": true,
+        "pastDepartureBlocksSubmit": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "ONEWAY-RETURN",
+      "layer": "api_db",
+      "action": "Switch a round trip with return date to one_way, first without clearing return, then with returnDate null.",
+      "expected": {
+        "firstRejected": true,
+        "explicitClearApplied": true,
+        "noSilentClear": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "NOOP-REVISION",
+      "layer": "api_db",
+      "action": "Send an equal-value patch at the current revision, then an equal-value patch at an old revision.",
+      "expected": {
+        "currentOutcome": "no_change",
+        "noRevisionIncrement": true,
+        "staleCode": "REVISION_CONFLICT"
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "IDEMPOTENT-OLD-RECEIPT",
+      "layer": "human_ui",
+      "action": "Replay an old successful command after a newer command has committed.",
+      "expected": {
+        "originalReceiptReturned": true,
+        "uiDoesNotRegress": true,
+        "currentStateReconciled": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "CSRF-BOUNDARY",
+      "layer": "api_db",
+      "action": "Send a mutation with a disallowed Origin or invalid/missing required CSRF token.",
+      "expected": {
+        "rejected": true,
+        "noMutation": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "WEBMCP-UNSUPPORTED",
+      "layer": "human_ui",
+      "action": "Open the normal app in a browser without native modelContext.",
+      "expected": {
+        "manualJourneyUsable": true,
+        "nativeMarkedUnavailable": true,
+        "noFakeNativeGlobal": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "TOOL-CONTEXT",
+      "layer": "native_deterministic",
+      "action": "Invoke a retained handler after route/account change; inspect observer and submitted-screen tool exposure.",
+      "expected": {
+        "wrongContextRejected": true,
+        "noStaleMutation": true,
+        "observerTools": [
+          "get_trip_draft",
+          "validate_trip_draft"
+        ],
+        "submittedTools": []
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "PROVIDER-INVALID",
+      "layer": "provider_adapter",
+      "action": "Return malformed JSON, impossible dates, wrong types or a protected field from a controlled provider double.",
+      "expected": {
+        "invalidOutputRejected": true,
+        "noTripMutation": true,
+        "noSilentRepairSuccess": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "PROVIDER-TRANSIENT",
+      "layer": "provider_adapter",
+      "action": "Simulate timeout, 429 and transient 5xx while recording all SDK/app attempts.",
+      "expected": {
+        "attemptsWithinBudget": true,
+        "deadlineEnforced": true,
+        "noFixtureFallback": true,
+        "draftUnchanged": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "AI-REVIEW-APPLY",
+      "layer": "human_ui",
+      "action": "Generate an exact proposal, inspect DB before Apply, then accept and reload.",
+      "expected": {
+        "unchangedBeforeApply": true,
+        "correctAfterApply": true,
+        "uiMatchesPersisted": true
+      },
+      "status": "not_run"
+    },
+    {
+      "id": "RACE-BRIEF",
+      "layer": "human_ui",
+      "action": "Hold one model response; change the brief or start a newer request before releasing it.",
+      "expected": {
+        "oldProposalStale": true,
+        "newerOutputNotOverwritten": true,
+        "noAutomaticApply": true
+      },
+      "status": "not_run"
+    }
+  ],
+  "planRevision": 2,
+  "evaluationBudget": {
+    "maxToolStepsPerRun": 8,
+    "runDeadlineMs": 60000,
+    "maxProviderRequestsPerBatch": 90,
+    "countsRetries": true
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "total": 34,
+  "pass": 18,
+  "fail": 0,
+  "blocked": 10,
+  "not_run": 6,
+  "results": [
+    {
+      "id": "MODEL-EXACT",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "MODEL-AMBIGUOUS",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "MODEL-PURCHASE",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "DRAFT-PARTIAL",
+      "status": "pass"
+    },
+    {
+      "id": "INPUT-SHAPE",
+      "status": "pass"
+    },
+    {
+      "id": "INPUT-CROSS-FIELD",
+      "status": "pass",
+      "httpStatus": 404
+    },
+    {
+      "id": "POLICY-REVIEW",
+      "status": "pass"
+    },
+    {
+      "id": "RACE-CAS",
+      "status": "pass"
+    },
+    {
+      "id": "RACE-UNSAVED",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "RACE-PROPOSAL",
+      "status": "pass",
+      "mode": "fixture"
+    },
+    {
+      "id": "RACE-INFLIGHT",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "IDEMPOTENT-RETRY",
+      "status": "pass"
+    },
+    {
+      "id": "IDEMPOTENT-CONFLICT",
+      "status": "pass"
+    },
+    {
+      "id": "ACCESS-BOUNDARY",
+      "status": "pass",
+      "httpStatus": 403
+    },
+    {
+      "id": "CANCEL-PREDISPATCH",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=adapter"
+    },
+    {
+      "id": "CANCEL-POSTDISPATCH",
+      "status": "pass"
+    },
+    {
+      "id": "LIFECYCLE",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "SUBMIT-REPLAY",
+      "status": "pass"
+    },
+    {
+      "id": "SUBMIT-STALE",
+      "status": "pass"
+    },
+    {
+      "id": "OUTCOME-ORACLE",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=test_fault"
+    },
+    {
+      "id": "LOCAL-CONSENT",
+      "status": "blocked",
+      "reason": "On-device Summarizer API not present in this Node eval host"
+    },
+    {
+      "id": "LOCAL-LATE-CREATE",
+      "status": "blocked",
+      "reason": "On-device Summarizer API not present in this Node eval host"
+    },
+    {
+      "id": "MANUAL-REFRESH",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=human_ui"
+    },
+    {
+      "id": "DATE-CALENDAR",
+      "status": "pass"
+    },
+    {
+      "id": "ONEWAY-RETURN",
+      "status": "pass"
+    },
+    {
+      "id": "NOOP-REVISION",
+      "status": "pass"
+    },
+    {
+      "id": "IDEMPOTENT-OLD-RECEIPT",
+      "status": "pass"
+    },
+    {
+      "id": "CSRF-BOUNDARY",
+      "status": "pass"
+    },
+    {
+      "id": "WEBMCP-UNSUPPORTED",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "TOOL-CONTEXT",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or a login-capable native browser eval harness"
+    },
+    {
+      "id": "PROVIDER-INVALID",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=provider_adapter"
+    },
+    {
+      "id": "PROVIDER-TRANSIENT",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=provider_adapter"
+    },
+    {
+      "id": "AI-REVIEW-APPLY",
+      "status": "pass",
+      "mode": "fixture"
+    },
+    {
+      "id": "RACE-BRIEF",
+      "status": "not_run",
+      "reason": "No deterministic mapping for layer=human_ui"
+    }
+  ]
+}

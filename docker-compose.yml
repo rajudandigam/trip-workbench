@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    container_name: trip-workbench-pg
+    environment:
+      POSTGRES_USER: trip_workbench
+      POSTGRES_PASSWORD: trip_workbench
+      POSTGRES_DB: trip_workbench
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trip_workbench -d trip_workbench"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - tw_pg_data:/var/lib/postgresql/data
+
+volumes:
+  tw_pg_data:

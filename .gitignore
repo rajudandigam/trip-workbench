@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.DS_Store
+coverage/
+cypress/videos/
+cypress/screenshots/
+.agent-inspect/
+evals/evidence/raw/
+*.log
+.cursor/
+GUIDE_DRIVEN_PROJECT_SKILL.md
