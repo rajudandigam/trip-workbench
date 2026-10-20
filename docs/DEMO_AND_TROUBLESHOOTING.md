@@ -1,6 +1,6 @@
 # Trip Workbench: demonstration and troubleshooting
 
-These are proposed demonstrations and expected outcomes. Replace expected outcomes with recorded observations as Cursor implements the app. Do not present this document as a completed test report.
+The manual app and a direct WebMCP session have been run. The sections below mix that observation with demonstrations that are still planned. Say which kind you are describing. Do not present the whole document as a completed test report.
 
 ## The story you should be able to explain
 
@@ -22,6 +22,16 @@ Use the synthetic traveler and the exact request below:
 6. Refresh and reopen the direct URL. Confirm the same ID, fields and submission.
 
 For a normal live demonstration after the example dates have passed, choose fresh future dates and record them. Keep automated fixtures on their injected clock so tests remain deterministic.
+
+## Observed WebMCP session (2026-10-20)
+
+Chrome DevTools discovered and invoked the three tools on the open draft `d36292f8-1a73-4ab6-b3ed-ffa3039e02fe`. Health was ready (`database` and `migrations` true, `aiMode` `fixture`). The editor was signed in as Alex Morgan.
+
+The agent read revision 3, updated it to a business-class round trip for two travelers (SFO → JFK, 2026-11-19 to 2026-11-22, purpose `Customer planning workshop`), and saved revision 4 as a draft. Validation was complete and reported `PREMIUM_CABIN`. A later one-way update saved revision 5 and cleared the return date. Validating with the older `expectedRevision: 3` returned `REVISION_CONFLICT` and `currentRevision: 5`. The request was not submitted.
+
+Earlier the same evening, the editor tab was still open after the dev server had stopped. `get_trip_draft` returned `NETWORK_ERROR` / `Failed to fetch`, and the page logged `net::ERR_CONNECTION_REFUSED` for the draft GET. Tool discovery had already succeeded. The update waited until health was ready and the editor was reloaded.
+
+This session shows direct native tool calls from an external browser agent. It is not a Gemini live run and not a pass of the automated native eval cases.
 
 ## Four separate integration demonstrations
 
@@ -69,6 +79,8 @@ Keep a separate two-minute Gemini demonstration ready for follow-up questions. D
 | Database tests cannot connect | Doctor output, local Compose status and designated test URL | Fix local setup or report blocked; do not replace PostgreSQL evidence with a mock |
 | Sign-in works but writes fail | Actual origin, proxy, cookie and CSRF flow | Repair same-origin/session integration; preserve protection |
 | `document.modelContext` is absent | Browser version, documented exposure setup, managed policy | Use permitted supported environment or mark native blocked |
+| Tool discovery works, then `Failed to fetch` | `curl http://localhost:3000/api/health`; dev terminal for Vite `:3000` and API `:3001` | Restart `npm run dev`, confirm health, reload the editor, read again. Do not re-seed. Do not retry a failed update blindly. |
+| Stale `expectedRevision` on validate | `currentRevision` on `REVISION_CONFLICT` | Refresh and review that revision. Do not assume the tool moved forward for you. |
 | Adapter tests pass but native smoke fails | Which test actually used the browser API? | Report both results; fix native integration separately |
 | Tools remain after logout/remount | Pending registration cleanup, stale actor generation | Repair lifecycle; retest the concrete race |
 | Evaluation opens the login page | Fresh context and login fixture | Add normal authentication to the wrapper before tool discovery |

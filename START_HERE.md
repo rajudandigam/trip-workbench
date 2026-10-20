@@ -2,9 +2,13 @@
 
 Prepared for Raju Dandigam, October 14, 2026.
 
-This is a clearer, expanded implementation handoff for Cursor. It contains plans, concrete contracts, copy-paste prompts and scenario definitions. It does not contain a built application or completed application test results.
+The application now lives in this repository. Use [README.md](README.md) to run it, and [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) plus [docs/RESULTS.md](docs/RESULTS.md) for the working manual journey and the 2026-10-20 WebMCP observation.
 
-## Start here
+The rest of this file is the original implementation handoff: plans, contracts, copy-paste prompts, and scenario definitions. Those prompts assume an empty project. Do not re-run them against the current tree.
+
+## Original setup sequence
+
+Historical. The repository already contains the app, so skip copying this pack in again.
 
 1. Open the new `trip-workbench` repository in Cursor.
 2. Add `flight-search-demo` and `cypress-test-trust-demo` as read-only reference folders when available.
@@ -20,7 +24,7 @@ A traveler prepares a business trip request, resolves missing details, reviews d
 
 Example: SFO to JFK, November 12–15, 2026, round trip, one traveler, economy, purpose customer workshop. The documented fixed test clock is October 14, 2026. Live demos should use suitable future dates if this example is later reused.
 
-The product ends at a submitted request. Identities, airports and policies are synthetic demonstration data. Sessions, database persistence and configured browser/provider integrations are actual implementations Cursor must build and verify.
+The product ends at a submitted request. Identities, airports and policies are synthetic demonstration data. Sessions, database persistence, and the browser and provider integrations are implemented in this repository.
 
 ## Contents
 
@@ -45,4 +49,4 @@ The scenario catalog is not a drop-in Google runner configuration. Cursor must t
 - Current contracts distinguish model extraction, direct native calls and model-driven browser evaluation.
 - Resume and repair prompts help preserve progress across Cursor chats.
 
-Start with Prompt 0. The manual app should work by Prompt 2; native and live-provider gaps stay visible while independent work continues.
+The stage prompts are kept for history. Prompt 0 through Prompt 5 are already reflected in the current tree. Live Gemini and the automated native eval cases remain unverified; the direct WebMCP session is recorded in [docs/RESULTS.md](docs/RESULTS.md).

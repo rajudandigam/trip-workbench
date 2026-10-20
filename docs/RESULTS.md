@@ -1,6 +1,6 @@
 # Results
 
-Base: `c4ef8a6` (remote main at repair start). Working tree dirty with focused repair changes (not committed as part of this task). Evidence date: 2026-10-15.
+Repair evidence date: 2026-10-15, starting from `c4ef8a6`. Those repair checks were recorded before the later commit. The WebMCP session further down was observed on 2026-10-20 against the running app.
 
 | Check | Status | Evidence |
 |-------|--------|----------|
@@ -11,9 +11,27 @@ Base: `c4ef8a6` (remote main at repair start). Working tree dirty with focused r
 | test:api | pass | isolated local test DB; includes stale validate `REVISION_CONFLICT` |
 | test:e2e | pass | Cypress electron manual journey |
 | test:evals | pass (0 fail) | exact case-ID registry: 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-10-15T20-48-44-330Z.json` |
-| native WebMCP | unverified | adapter repaired; browser `document.modelContext` observation not run |
+| native WebMCP | observed, direct calls only | 2026-10-20 Chrome DevTools session below. The 2026-10-15 eval harness still marks native cases blocked. |
 | live Gemini | unverified / blocked | no key required for this repair; fixture mode used |
-| model-driven WebMCP | unverified | not observed |
+| model-driven WebMCP | unverified | the 2026-10-20 session invoked tools directly; a model-chosen eval trajectory was not recorded |
+
+## Live WebMCP observation (2026-10-20)
+
+Dev server: Vite `http://localhost:3000`, API port 3001, `aiMode` `fixture`. Health returned HTTP 200 with `status: "ready"`, `database: true`, `migrations: true`.
+
+Page: `http://localhost:3000/trips/d36292f8-1a73-4ab6-b3ed-ffa3039e02fe`, signed in as Alex Morgan. Chrome DevTools listed `get_trip_draft`, `update_trip_draft`, and `validate_trip_draft` for that draft id.
+
+| Call | Arguments that matter | Result |
+|------|------------------------|--------|
+| `get_trip_draft` | draft id above | Revision 3, `draft`, `hasUnsavedChanges: false`. SFO, JFK, 2026-11-12, 2026-11-15, `round_trip`, 1 traveler, `economy`, purpose `customer workshop`. |
+| `update_trip_draft` | `expectedRevision` 3, commandId `cursor-demo-20261019-sfo-jfk-roundtrip` | Applied. Revision 4. Round trip, 2026-11-19, 2026-11-22, 2 travelers, `business`, purpose `Customer planning workshop`. Status `draft`. |
+| `validate_trip_draft` | `expectedRevision` 4 | `valid: true`, `fieldIssues: []`, policy `demo-policy-v1`, `PREMIUM_CABIN` (“Premium cabin requires review.”), `canSubmit: true`. Not submitted. |
+| `get_trip_draft` | same draft | Revision 4 matched the update. |
+| `update_trip_draft` | `expectedRevision` 4, commandId `cursor-demo-20261019-one-way`, patch `tripType: one_way`, `returnDate: null` | Applied. Revision 5. Departure 2026-11-19 kept. Status `draft`. |
+| `validate_trip_draft` | `expectedRevision` 5 | Still valid. Same premium-cabin review requirement. |
+| `validate_trip_draft` | `expectedRevision` 3, on purpose | `REVISION_CONFLICT`, message “This draft changed.”, `currentRevision: 5`, `retry: "refresh_and_review"`. Not retried. |
+
+A prior attempt the same evening discovered the tools, then `get_trip_draft` returned `NETWORK_ERROR` / `Failed to fetch` because `GET /api/trips/:id` was `net::ERR_CONNECTION_REFUSED`. No mutation was sent. After `npm run dev` and a healthy `/api/health`, the editor was reloaded and the table above was recorded.
 
 ## Superseded evidence
 

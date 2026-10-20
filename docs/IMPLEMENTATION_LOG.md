@@ -7,7 +7,7 @@
 | 0 Foundation | complete | Scaffold, Compose/local Postgres, health, docs |
 | 1 Server | complete | Sessions, migrations, seeds, revision/idempotency commands |
 | 2 Manual UI | complete | Login → edit → save → review → submit → refresh (Cypress green) |
-| 3 WebMCP | complete (native blocked) | Three tools + AbortSignal cleanup; native discovery blocked without `document.modelContext` |
+| 3 WebMCP | complete; direct native calls observed 2026-10-20 | Three tools + AbortSignal cleanup. Eval harness still blocks native cases. Chrome DevTools invoked the tools on a running draft; see [RESULTS.md](RESULTS.md). |
 | 4 Gemini | complete (fixture) | Fixture proposals + stale bindings; live blocked without key |
 | 5 Evidence | complete | Exact case-ID eval registry + AgentInspect hooks + DEMO_RUNBOOK |
 | 6 Summarizer (optional) | complete (API absent) | On-device adapter with honest unavailable path; no auto cloud fallback |
@@ -47,6 +47,8 @@ npm run test:evals  # pass (12 pass / 10 blocked / 12 not_run / 0 fail)
 
 Exactly three WebMCP tools: `get_trip_draft`, `update_trip_draft`, `validate_trip_draft`. No draft-creation/submission tools, no embedded agent host, no remote MCP server. Human creates and submits via UI.
 
-## Next (manual phase — not claimed here)
+## Live check (2026-10-20)
 
-Native browser WebMCP setup, external-agent execution, live Gemini, and interview rehearsal remain explicitly unverified.
+Chrome DevTools, with the dev server healthy, read and updated draft `d36292f8-1a73-4ab6-b3ed-ffa3039e02fe` through the three WebMCP tools, validated revisions 4 and 5, and received `REVISION_CONFLICT` for a deliberate `expectedRevision: 3`. The request stayed a draft. Recorded in [RESULTS.md](RESULTS.md) and [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md).
+
+Still unverified: live Gemini, a model-chosen WebMCP evaluation trajectory, and the automated native eval cases.

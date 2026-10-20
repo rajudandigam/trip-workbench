@@ -30,7 +30,7 @@ Recorded during Prompt 0–5 local implementation on 2026-10-14.
 
 | Capability | Status on this host |
 |------------|---------------------|
-| Native WebMCP (`document.modelContext`) | Adapter implemented; native discovery **blocked** in Electron/Node harness |
+| Native WebMCP (`document.modelContext`) | Adapter implemented. Electron/Node eval harness still **blocked**. On 2026-10-20, Chrome DevTools listed and invoked `get_trip_draft`, `update_trip_draft`, and `validate_trip_draft` against the running dev server. See [RESULTS.md](RESULTS.md). |
 | Gemini live | **blocked** without `GEMINI_API_KEY` |
 | Chrome Summarizer | Adapter implemented; global absent in Node/Electron — reported unavailable honestly |
 
