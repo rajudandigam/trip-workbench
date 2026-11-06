@@ -1,19 +1,15 @@
-# Phase 2 backlog
+# Phase 2 status
 
-Deferred until Phase 1 evidence and the first articles are reviewed. Do not implement automatically.
+Phase 2 was activated and implemented after Phase 1 `e711e20`.
 
-## Scope when activated
+Progress and evidence: [PHASE_2_PLAN.md](PHASE_2_PLAN.md), [PHASE_2_EVIDENCE.md](PHASE_2_EVIDENCE.md), [DEMO_EVENTS_RUNBOOK.md](DEMO_EVENTS_RUNBOOK.md).
 
-- Synthetic event draft wizard (title, explicit dates/time zone, synthetic/manual location, review)
-- Authenticated entry capability and page-scoped event tools
-- Declarative form experiment with a manual fallback
-- Authenticated upstream webmcp-evals integration with explicit fixtures
+## Remaining optional follow-ups (not required to stop)
 
-## Explicitly out of scope for Phase 2
+- Live Chrome DevTools discovery of the four event tools
+- Thin authenticated upstream webmcp-evals adapter using normal login (no auth bypass)
+- Stronger concurrent-edit recovery parity with the trip coordinator (event client is intentionally leaner)
 
-- Real calendar invites or Calendar OAuth
-- Model benchmarks and tool-count experiments (Phase 3)
-- Public deployment and origin-trial hosting
-- Automatic PR / CLA / catalog publication
+## Still Phase 3 only
 
-Activation prompt lives in [WEBMCP_ROADMAP.md](WEBMCP_ROADMAP.md).
+Tool-count experiments, global/contextual exposure study, AgentInspect full tracing, upstream contribution packaging.

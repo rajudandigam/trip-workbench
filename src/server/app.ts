@@ -5,6 +5,7 @@ import type { AppConfig } from "./config.js";
 import type { Db } from "./db/pool.js";
 import { SessionService } from "./services/session-service.js";
 import { TripService } from "./services/trip-service.js";
+import { EventService } from "./services/event-service.js";
 import { createApiRouter } from "./routes/api.js";
 import { requireCsrf, sessionMiddleware } from "./middleware/session.js";
 
@@ -12,13 +13,14 @@ export function createApp(config: AppConfig, db: Db) {
   const app = express();
   const sessions = new SessionService(db, config.clock, config.sessionSecret);
   const trips = new TripService(db, config.clock, config.timeZone);
+  const events = new EventService(db, config.clock);
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "32kb" }));
   app.use(cookieParser());
   app.use(sessionMiddleware(sessions, config.cookieName));
   app.use("/api", requireCsrf(config.cookieName));
-  app.use("/api", createApiRouter({ config, db, sessions, trips }));
+  app.use("/api", createApiRouter({ config, db, sessions, trips, events }));
 
   if (config.nodeEnv === "production") {
     const clientDir = path.resolve(process.cwd(), "dist/client");

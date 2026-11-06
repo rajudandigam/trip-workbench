@@ -20,7 +20,7 @@ export type SessionInfo = {
   role: "traveler" | "observer";
   tenantId: string;
   csrfToken: string;
-  capabilities: { canMutateTrips: boolean; aiMode: string };
+  capabilities: { canMutateTrips: boolean; canMutateEvents?: boolean; aiMode: string };
 };
 
 export type PendingOutcome = {

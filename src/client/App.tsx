@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { createCoordinator, type SessionInfo } from "./lib/coordinator";
+import { createEventCoordinator } from "./lib/event-coordinator";
 import { LoginPage } from "./pages/LoginPage";
 import { TripsPage } from "./pages/TripsPage";
 import { TripEditorPage } from "./pages/TripEditorPage";
 import { TripReviewPage } from "./pages/TripReviewPage";
 import { TripConfirmationPage } from "./pages/TripConfirmationPage";
+import { EventsPage } from "./pages/EventsPage";
+import { EventEditorPage } from "./pages/EventEditorPage";
+import { EventReviewPage } from "./pages/EventReviewPage";
+import { EventConfirmationPage } from "./pages/EventConfirmationPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 
 export function App() {
   const coordinator = useMemo(() => createCoordinator(), []);
+  const eventCoordinator = useMemo(() => createEventCoordinator(), []);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [booting, setBooting] = useState(true);
   const navigate = useNavigate();
@@ -30,6 +36,7 @@ export function App() {
       setLogoutError(res.error.message);
       return;
     }
+    eventCoordinator.leaveEditor();
     setSession(null);
     navigate("/login");
   }
@@ -47,7 +54,7 @@ export function App() {
       <header className="topbar">
         <div>
           <div className="brand">Trip Workbench</div>
-          <div className="muted">Prepare, validate, and submit a business trip request</div>
+          <div className="muted">Prepare trip requests and synthetic event drafts</div>
         </div>
         <div className="row">
           {session ? (
@@ -55,7 +62,10 @@ export function App() {
               <span className="muted">
                 {session.displayName} · {session.role}
               </span>
-              <Link to="/trips">Requests</Link>
+              <Link to="/trips">Trips</Link>
+              <Link to="/events" data-testid="nav-events">
+                Events
+              </Link>
               {import.meta.env.DEV ? <Link to="/dev/diagnostics">Diagnostics</Link> : null}
               <button type="button" className="btn secondary" onClick={() => void handleLogout()}>
                 Sign out
@@ -117,6 +127,46 @@ export function App() {
           path="/trips/:id/confirmation"
           element={
             session ? <TripConfirmationPage coordinator={coordinator} /> : <Navigate to="/login" replace />
+          }
+        />
+        <Route
+          path="/events"
+          element={
+            session ? (
+              <EventsPage eventCoordinator={eventCoordinator} session={session} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/events/:id"
+          element={
+            session ? (
+              <EventEditorPage eventCoordinator={eventCoordinator} session={session} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/events/:id/review"
+          element={
+            session ? (
+              <EventReviewPage eventCoordinator={eventCoordinator} session={session} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/events/:id/confirmation"
+          element={
+            session ? (
+              <EventConfirmationPage eventCoordinator={eventCoordinator} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
           }
         />
         <Route path="/dev/diagnostics" element={<DiagnosticsPage session={session} />} />

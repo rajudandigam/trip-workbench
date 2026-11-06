@@ -15,8 +15,10 @@ export async function seedDatabase(db: Db, seedPassword: string): Promise<void> 
   const hash = await bcrypt.hash(seedPassword, 10);
   await db.query("BEGIN");
   try {
+    await db.query(`DELETE FROM event_submissions`);
     await db.query(`DELETE FROM trip_submissions`);
     await db.query(`DELETE FROM command_receipts`);
+    await db.query(`DELETE FROM event_drafts`);
     await db.query(`DELETE FROM trip_drafts`);
     await db.query(`DELETE FROM sessions`);
     await db.query(`DELETE FROM policies`);

@@ -4,11 +4,12 @@ import type { Db } from "./pool.js";
 
 export async function requiredMigrationsApplied(db: Db): Promise<boolean> {
   try {
+    const required = ["001_init.sql", "002_events.sql"];
     const res = await db.query(
-      `SELECT 1 FROM schema_migrations WHERE id = $1`,
-      ["001_init.sql"],
+      `SELECT id FROM schema_migrations WHERE id = ANY($1::text[])`,
+      [required],
     );
-    return res.rowCount === 1;
+    return res.rowCount === required.length;
   } catch {
     return false;
   }

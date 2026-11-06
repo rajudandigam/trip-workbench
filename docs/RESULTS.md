@@ -1,15 +1,15 @@
 # Results
 
-Phase 1 evidence date: 2026-11-06, starting from `9485a47`. Earlier repair checks (2026-10-15 from `c4ef8a6`) and the 2026-10-20 three-tool Chrome session remain historical context below.
+Phase 2 evidence date: 2026-11-06 (events workflow). Phase 1 started from `9485a47` / landed in `e711e20`. Earlier repair checks and the 2026-10-20 three-tool Chrome session remain historical context below. See [PHASE_2_EVIDENCE.md](PHASE_2_EVIDENCE.md).
 
 | Check | Status | Evidence |
 |-------|--------|----------|
 | typecheck | pass | `npm run typecheck` |
 | lint | pass | `npm run lint` |
 | build | pass | `npm run build` (also via e2e harness) |
-| test:unit | pass | 35 tests (refresh merge/ordering, recheck snapshots, prepare review, submit binding, races, cancel, schemas, fixture, summarizer) |
-| test:api | pass | isolated local test DB; includes stale validate `REVISION_CONFLICT` |
-| test:e2e | pass | Cypress electron manual journey |
+| test:unit | pass | 38 tests (Phase 1 coordinator + event rules) |
+| test:api | pass | trips (3) + events (2) on isolated local test DB |
+| test:e2e | pass | Cypress trip + event manual journeys |
 | test:evals | pass (0 fail) | 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-11-06T01-34-17-272Z.json` |
 | test:native-smoke | blocked | Node host lacks WebMCP browser attachment — `evals/evidence/native-smoke-2026-11-06T01-34-07-039Z.json` |
 | native WebMCP | partial | 2026-10-20 Chrome DevTools session for the original three tools. Five-tool native discovery not re-run in this Phase 1 session. |

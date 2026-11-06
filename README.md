@@ -1,6 +1,6 @@
 # Trip Workbench
 
-A business trip request app. A traveler prepares a draft, reviews deterministic policy findings, and submits. Gemini can propose fields from a brief. A browser agent can read, update, and validate the open draft through WebMCP. Both paths use the same application commands. The server owns authorization, validation, and persistence.
+A business trip request app with a Phase 2 synthetic event-draft workflow. A traveler prepares a trip or event draft, reviews deterministic policy findings, and records it. Gemini can propose trip fields from a brief. A browser agent can operate the open draft through page-scoped WebMCP tools. Paths use the same authorization, revision, and receipt patterns. The server owns validation and persistence. Events never send invitations or book venues.
 
 Synthetic demo data only. Sessions, PostgreSQL, the WebMCP adapter, and Gemini proposal modes are real integrations. AI mode is explicit: `disabled`, `fixture`, or `live`.
 
@@ -9,7 +9,9 @@ Synthetic demo data only. Sessions, PostgreSQL, the WebMCP adapter, and Gemini p
 - Manual journey: sign in, edit, save, review, and submit. Cypress covers this path.
 - Development server: Vite on port **3000**, API on port **3001**. Browser calls to `/api` are proxied through Vite.
 - Health: `GET /api/health` reports database and migration readiness.
-- WebMCP draft tools: `get_trip_draft`, `update_trip_draft`, `validate_trip_draft`, `prepare_trip_review`, and `recheck_trip_update`. Tools cannot create or submit a request. `prepare_trip_review` opens an inline review summary without leaving the editor.
+- WebMCP trip tools: `get_trip_draft`, `update_trip_draft`, `validate_trip_draft`, `prepare_trip_review`, and `recheck_trip_update`.
+- WebMCP event tools (open event editor only): `get_event_draft`, `update_event_draft`, `validate_event_draft`, `prepare_event_review`. The authenticated Events list remains the entry point.
+- Synthetic events: title, dates, time zone, synthetic/manual location, review, and recorded snapshot only.
 - State handling: dirty-before-refresh edits are preserved; uncertain updates keep original command context; submission is bound to the reviewed revision.
 - Gemini proposals in `fixture` mode. Live Gemini stays off unless `GEMINI_API_KEY` is set. A WebMCP demonstration does not need Gemini; the browser agent supplies the model and the tools call this app.
 
@@ -100,10 +102,11 @@ An already loaded editor can keep its form and registered tools after the dev se
 
 | Doc | Use it for |
 |-----|------------|
-| [docs/WEBMCP_ROADMAP.md](docs/WEBMCP_ROADMAP.md) | Phased plan; only Phase 1 is active by default |
-| [docs/PHASE_1_PLAN.md](docs/PHASE_1_PLAN.md) | Phase 1 checkpoints and completion status |
-| [docs/PHASE_1_EVIDENCE.md](docs/PHASE_1_EVIDENCE.md) | Tests, blockers, and article-claim boundaries |
+| [docs/WEBMCP_ROADMAP.md](docs/WEBMCP_ROADMAP.md) | Phased plan |
+| [docs/PHASE_1_EVIDENCE.md](docs/PHASE_1_EVIDENCE.md) | Phase 1 tests and article-claim boundaries |
+| [docs/PHASE_2_EVIDENCE.md](docs/PHASE_2_EVIDENCE.md) | Phase 2 event workflow evidence |
+| [docs/DEMO_EVENTS_RUNBOOK.md](docs/DEMO_EVENTS_RUNBOOK.md) | Event wizard walkthrough |
 | [docs/WEBMCP_SETUP.md](docs/WEBMCP_SETUP.md) | Browser, Cursor MCP, Inspector, optional Gemini |
-| [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) | Manual, fixture, and WebMCP walkthrough |
-| [docs/RESULTS.md](docs/RESULTS.md) | Recorded checks and the live WebMCP observation |
+| [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md) | Trip manual/WebMCP walkthrough |
+| [docs/RESULTS.md](docs/RESULTS.md) | Recorded checks |
 | [START_HERE.md](START_HERE.md) | Original implementation pack. The app in this repo is already built. |

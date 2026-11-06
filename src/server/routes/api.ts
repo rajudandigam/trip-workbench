@@ -5,8 +5,10 @@ import type { Db } from "../db/pool.js";
 import { requiredMigrationsApplied } from "../db/migrate.js";
 import type { SessionService } from "../services/session-service.js";
 import type { TripService } from "../services/trip-service.js";
+import type { EventService } from "../services/event-service.js";
 import { requireAuth, type AuthedRequest } from "../middleware/session.js";
 import { AIRPORTS, CABINS, POLICY_VERSION } from "../../domain/types.js";
+import { EVENT_POLICY_VERSION, EVENT_TIME_ZONES, SYNTHETIC_VENUES } from "../../domain/event-types.js";
 import { calendarDateInTimezone } from "../../domain/clock.js";
 import { createProposal } from "../adapters/gemini.js";
 import { inspectRun, inspectStep } from "../adapters/inspect.js";
@@ -17,6 +19,7 @@ import {
   zodErrorToHttp,
   zodIssuesToFieldIssues,
 } from "../../domain/trip-schemas.js";
+import { HttpEventPatchBodySchema } from "../../domain/event-schemas.js";
 
 function sendError(res: import("express").Response, error: unknown) {
   if (error instanceof z.ZodError) {
@@ -69,9 +72,10 @@ export function createApiRouter(deps: {
   db: Db;
   sessions: SessionService;
   trips: TripService;
+  events: EventService;
 }): Router {
   const router = Router();
-  const { config, db, sessions, trips } = deps;
+  const { config, db, sessions, trips, events } = deps;
 
   router.get("/health", async (_req, res) => {
     try {
@@ -121,6 +125,7 @@ export function createApiRouter(deps: {
           csrfToken: actor.csrfToken,
           capabilities: {
             canMutateTrips: actor.role === "traveler",
+            canMutateEvents: actor.role === "traveler",
             aiMode: config.aiMode,
           },
         },
@@ -148,6 +153,7 @@ export function createApiRouter(deps: {
         csrfToken: req.actor.csrfToken,
         capabilities: {
           canMutateTrips: req.actor.role === "traveler",
+          canMutateEvents: req.actor.role === "traveler",
           aiMode: config.aiMode,
         },
       },
@@ -173,9 +179,17 @@ export function createApiRouter(deps: {
         cabins: CABINS,
         timeZone: config.timeZone,
         policyVersion: POLICY_VERSION,
+        eventPolicyVersion: EVENT_POLICY_VERSION,
+        eventTimeZones: EVENT_TIME_ZONES,
+        syntheticVenues: SYNTHETIC_VENUES,
         policySummary: [
           "Premium economy and business require review.",
           "Departure within seven calendar days requires review.",
+        ],
+        eventPolicySummary: [
+          "Events spanning five or more days require review.",
+          "Manual locations require review before recording.",
+          "Recording an event does not send invitations or book venues.",
         ],
       },
     });
@@ -326,6 +340,103 @@ export function createApiRouter(deps: {
         { silent: true },
       );
       res.json({ ok: true, data: result });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get("/events", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const list = await events.list(req.actor!);
+      res.json({ ok: true, data: list });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post("/events", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const body = z.object({ commandId: CommandIdSchema }).strict().parse(req.body);
+      const receipt = await events.create(req.actor!, body.commandId);
+      res.status(201).json({ ok: true, data: receipt });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get("/events/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const event = await events.get(req.actor!, String(req.params.id));
+      res.json({ ok: true, data: event });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.patch("/events/:id", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const body = HttpEventPatchBodySchema.parse(req.body);
+      const receipt = await events.patch(
+        req.actor!,
+        String(req.params.id),
+        body.expectedRevision,
+        body.commandId,
+        body.patch,
+      );
+      res.json({ ok: true, data: receipt });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post("/events/:id/validate", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const body = z
+        .object({ expectedRevision: ExpectedRevisionSchema })
+        .strict()
+        .parse(req.body);
+      const result = await events.validate(
+        req.actor!,
+        String(req.params.id),
+        body.expectedRevision,
+      );
+      res.json({ ok: true, data: result });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post("/events/:id/submit", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const body = z
+        .object({
+          expectedRevision: ExpectedRevisionSchema,
+          reviewedPolicyVersion: z.string().min(1),
+          commandId: CommandIdSchema,
+        })
+        .strict()
+        .parse(req.body);
+      const receipt = await events.submit(
+        req.actor!,
+        String(req.params.id),
+        body.expectedRevision,
+        body.reviewedPolicyVersion,
+        body.commandId,
+      );
+      res.json({ ok: true, data: receipt });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get("/events/:id/commands/:commandId", requireAuth, async (req: AuthedRequest, res) => {
+    try {
+      const receipt = await events.getCommand(
+        req.actor!,
+        String(req.params.id),
+        String(req.params.commandId),
+      );
+      res.json({ ok: true, data: receipt });
     } catch (error) {
       sendError(res, error);
     }
