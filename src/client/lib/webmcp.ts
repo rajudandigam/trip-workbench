@@ -1,9 +1,13 @@
 import type { Coordinator } from "./coordinator";
 import {
   createGetTripDraftArgsSchema,
+  createPrepareTripReviewArgsSchema,
+  createRecheckTripUpdateArgsSchema,
   createUpdateTripDraftArgsSchema,
   createValidateTripDraftArgsSchema,
   getTripDraftJsonSchema,
+  prepareTripReviewJsonSchema,
+  recheckTripUpdateJsonSchema,
   updateTripDraftJsonSchema,
   validateTripDraftJsonSchema,
 } from "../../domain/trip-schemas.js";
@@ -26,6 +30,12 @@ declare global {
   }
 }
 
+export type ToolRegistrationState = {
+  phase: "unsupported" | "supported" | "registering" | "ready" | "failed";
+  detail?: string;
+  error?: string;
+};
+
 export type RegistrationStatus =
   | { available: true; pending: boolean; error?: string }
   | { available: false; reason: string; error?: string };
@@ -43,7 +53,7 @@ function toolError(code: string, message: string, extra: Record<string, unknown>
 }
 
 /**
- * Registers the three draft tools while the editable draft editor is mounted.
+ * Registers draft tools while the editable draft editor is mounted.
  * Cleanup uses AbortSignal (Chrome imperative API). Do not assume .unregister().
  */
 export function registerTripDraftTools(options: {
@@ -51,27 +61,59 @@ export function registerTripDraftTools(options: {
   canMutate: boolean;
   coordinator: Coordinator;
   signal: AbortSignal;
+  onStatus?: (status: ToolRegistrationState) => void;
 }): RegistrationStatus {
   const ctx = document.modelContext;
+  const report = (status: ToolRegistrationState) => {
+    options.onStatus?.(status);
+  };
+
   if (!ctx) {
-    return { available: false, reason: "document.modelContext is unavailable in this browser" };
+    const status: RegistrationStatus = {
+      available: false,
+      reason: "document.modelContext is unavailable in this browser",
+    };
+    report({ phase: "unsupported", detail: status.reason });
+    return status;
   }
+
+  report({ phase: "supported", detail: "document.modelContext present" });
+  report({ phase: "registering", detail: "Registering tools…" });
 
   const draftId = options.draftId;
   let registrationError: string | undefined;
   let pending = true;
+  let settled = 0;
+  const expectedToolCount = options.canMutate ? 5 : 3;
+
+  const markSettled = () => {
+    settled += 1;
+    if (settled >= expectedToolCount) {
+      pending = false;
+      if (registrationError) {
+        report({ phase: "failed", detail: registrationError, error: registrationError });
+      } else if (!options.signal.aborted) {
+        report({
+          phase: "ready",
+          detail: options.canMutate
+            ? "Five tools registered (read/update/validate/prepare/recheck)"
+            : "Read/validate/prepare tools registered (mutation tools omitted)",
+        });
+      }
+    }
+  };
 
   const readTool: ToolRegistration = {
     name: "get_trip_draft",
     description:
       `Read the authorized saved trip draft for draftId=${draftId} (the currently open editor). ` +
       "Returns saved fields, revision, status, and hasUnsavedChanges. Does not return the unsaved buffer. " +
-      "Always refreshes from the server so cross-tab revisions are visible. Revisions come from a fresh read.",
+      "Always refreshes from the server so cross-tab revisions are visible. Preserves local unsaved edits.",
     inputSchema: getTripDraftJsonSchema(draftId),
     annotations: { readOnlyHint: true },
     execute: async (args, opts) => {
       try {
-        if (opts?.signal?.aborted) {
+        if (opts?.signal?.aborted || options.signal.aborted) {
           return toolError("CANCELLED", "Tool execution cancelled before start.");
         }
         const parsed = createGetTripDraftArgsSchema(draftId).safeParse(args);
@@ -99,7 +141,7 @@ export function registerTripDraftTools(options: {
     annotations: { readOnlyHint: true },
     execute: async (args, opts) => {
       try {
-        if (opts?.signal?.aborted) {
+        if (opts?.signal?.aborted || options.signal.aborted) {
           return toolError("CANCELLED", "Tool execution cancelled before start.");
         }
         const parsed = createValidateTripDraftArgsSchema(draftId).safeParse(args);
@@ -120,7 +162,36 @@ export function registerTripDraftTools(options: {
     },
   };
 
-  const tools: ToolRegistration[] = [readTool, validateTool];
+  const prepareTool: ToolRegistration = {
+    name: "prepare_trip_review",
+    description:
+      `Validate draft ${draftId} at expectedRevision and show an inline review summary in the editor. ` +
+      "Does not navigate away and does not submit. Refuses dirty, busy, unresolved, or stale contexts. " +
+      "Returns findings, canSubmit, and submitted=false.",
+    inputSchema: prepareTripReviewJsonSchema(draftId),
+    annotations: { readOnlyHint: true },
+    execute: async (args, opts) => {
+      try {
+        if (opts?.signal?.aborted || options.signal.aborted) {
+          return toolError("CANCELLED", "Tool execution cancelled before start.");
+        }
+        const parsed = createPrepareTripReviewArgsSchema(draftId).safeParse(args);
+        if (!parsed.success) {
+          return toolError("INVALID_INPUT", "Invalid prepare_trip_review arguments.");
+        }
+        const res = await options.coordinator.prepareReview(
+          parsed.data.draftId,
+          parsed.data.expectedRevision,
+        );
+        return envelope(res);
+      } catch (error) {
+        return toolError("INTERNAL", (error as Error).message || "prepare_trip_review failed");
+      }
+    },
+  };
+
+  const tools: ToolRegistration[] = [readTool, validateTool, prepareTool];
+
   if (options.canMutate) {
     tools.push({
       name: "update_trip_draft",
@@ -128,11 +199,11 @@ export function registerTripDraftTools(options: {
         `Apply an allowlisted patch to draft ${draftId}. ` +
         "Requires expectedRevision from a fresh read and a unique commandId for a new logical mutation " +
         "(reuse the same commandId only for an exact retry). Dates are calendar YYYY-MM-DD values. " +
-        "Refuses when the form has unsaved edits. Cannot submit.",
+        "Refuses when the form has unsaved edits, is busy, or has an unresolved outcome. Cannot submit.",
       inputSchema: updateTripDraftJsonSchema(draftId),
       execute: async (args, opts) => {
         try {
-          if (opts?.signal?.aborted) {
+          if (opts?.signal?.aborted || options.signal.aborted) {
             return toolError("CANCELLED", "Update cancelled before dispatch.");
           }
           const parsed = createUpdateTripDraftArgsSchema(draftId).safeParse(args);
@@ -144,7 +215,6 @@ export function registerTripDraftTools(options: {
               })),
             });
           }
-          // Do not coerce or invent commandId.
           const res = await options.coordinator.applyAgentPatch(
             parsed.data.patch,
             parsed.data.expectedRevision,
@@ -157,6 +227,33 @@ export function registerTripDraftTools(options: {
         }
       },
     });
+
+    tools.push({
+      name: "recheck_trip_update",
+      description:
+        `Reconcile the editor's existing unresolved update for draft ${draftId} without dispatching another write. ` +
+        "Requires the pending commandId. Returns an explicit error when no matching pending update exists. " +
+        "Does not accept arbitrary receipt lookups or invent a new commandId.",
+      inputSchema: recheckTripUpdateJsonSchema(draftId),
+      execute: async (args, opts) => {
+        try {
+          if (opts?.signal?.aborted || options.signal.aborted) {
+            return toolError("CANCELLED", "Recheck cancelled before start.");
+          }
+          const parsed = createRecheckTripUpdateArgsSchema(draftId).safeParse(args);
+          if (!parsed.success) {
+            return toolError("INVALID_INPUT", "Invalid recheck_trip_update arguments.");
+          }
+          const res = await options.coordinator.recheckOutcome({
+            draftId: parsed.data.draftId,
+            commandId: parsed.data.commandId,
+          });
+          return envelope(res);
+        } catch (error) {
+          return toolError("INTERNAL", (error as Error).message || "recheck_trip_update failed");
+        }
+      },
+    });
   }
 
   for (const tool of tools) {
@@ -164,17 +261,17 @@ export function registerTripDraftTools(options: {
       const result = ctx.registerTool(tool, { signal: options.signal });
       void Promise.resolve(result)
         .then(() => {
-          pending = false;
+          markSettled();
         })
         .catch((error: unknown) => {
-          pending = false;
           registrationError = (error as Error).message || "registerTool rejected";
           console.warn("WebMCP registerTool failed", error);
+          markSettled();
         });
     } catch (error) {
-      pending = false;
       registrationError = (error as Error).message || "registerTool threw";
       console.warn("WebMCP registerTool threw", error);
+      markSettled();
     }
   }
 

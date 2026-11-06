@@ -20,6 +20,7 @@
     "test:api": "vitest run --config vitest.config.ts tests/api",
     "test:e2e": "tsx scripts/test-e2e.ts",
     "test:evals": "tsx scripts/run-evals.ts",
+    "test:native-smoke": "tsx scripts/native-webmcp-smoke.ts",
     "cy:open": "cypress open --e2e --config-file cypress.config.ts",
     "cy:run": "cypress run --e2e --config-file cypress.config.ts",
     "lint": "eslint . --max-warnings 0",

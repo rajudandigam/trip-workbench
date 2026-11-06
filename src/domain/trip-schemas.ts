@@ -65,6 +65,24 @@ export function createUpdateTripDraftArgsSchema(activeDraftId: string) {
     .strict();
 }
 
+export function createPrepareTripReviewArgsSchema(activeDraftId: string) {
+  return z
+    .object({
+      draftId: z.literal(activeDraftId),
+      expectedRevision: ExpectedRevisionSchema,
+    })
+    .strict();
+}
+
+export function createRecheckTripUpdateArgsSchema(activeDraftId: string) {
+  return z
+    .object({
+      draftId: z.literal(activeDraftId),
+      commandId: CommandIdSchema,
+    })
+    .strict();
+}
+
 /** HTTP PATCH body (draft id comes from the path). */
 export const HttpTripPatchBodySchema = z
   .object({
@@ -133,4 +151,18 @@ export function validateTripDraftJsonSchema(activeDraftId: string): Record<strin
 
 export function getTripDraftJsonSchema(activeDraftId: string): Record<string, unknown> {
   return z.toJSONSchema(createGetTripDraftArgsSchema(activeDraftId)) as Record<string, unknown>;
+}
+
+export function prepareTripReviewJsonSchema(activeDraftId: string): Record<string, unknown> {
+  return z.toJSONSchema(createPrepareTripReviewArgsSchema(activeDraftId)) as Record<
+    string,
+    unknown
+  >;
+}
+
+export function recheckTripUpdateJsonSchema(activeDraftId: string): Record<string, unknown> {
+  return z.toJSONSchema(createRecheckTripUpdateArgsSchema(activeDraftId)) as Record<
+    string,
+    unknown
+  >;
 }

@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-11-06T01:34:07.040Z",
+  "host": "darwin",
+  "node": "v22.22.3",
+  "note": "Native smoke must discover real page tools in a WebMCP-enabled browser. Node alone cannot satisfy that.",
+  "results": [
+    {
+      "id": "NATIVE-TOOL-DISCOVERY",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "No WebMCP-enabled browser automation is attached to this Node smoke process. document.modelContext is a browser API.",
+      "setup": [
+        "Enable Chrome WebMCP testing in the profile used for demos",
+        "Connect Cursor Chrome DevTools MCP with --categoryExperimentalWebmcp",
+        "Open an owned draft editor, confirm Saved, then list_webmcp_tools",
+        "Expect get_trip_draft, validate_trip_draft, prepare_trip_review, and when mutable update_trip_draft + recheck_trip_update"
+      ]
+    },
+    {
+      "id": "NATIVE-DIRTY-READ",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY"
+    },
+    {
+      "id": "NATIVE-PREPARE-REVIEW",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY"
+    },
+    {
+      "id": "NATIVE-RECHECK-UPDATE",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY"
+    },
+    {
+      "id": "MODEL-AGENT-JOURNEYS",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Model-directed WebMCP journeys were not run in this Phase 1 session. Use Cursor or Inspector with discovered tools when available.",
+      "setup": [
+        "Exact update then prepare_trip_review (×2)",
+        "Ambiguous brief requiring clarification (×2)",
+        "Premium-cabin request whose explanation distinguishes review from a blocker (×2)"
+      ]
+    }
+  ]
+}

@@ -43,9 +43,11 @@ Open an editable draft you own. Discover tools on that page and confirm:
 
 | Tool | What it does |
 |------|----------------|
-| `get_trip_draft` | Reads the saved draft, revision, status, and `hasUnsavedChanges`. Refreshes from the server. |
-| `update_trip_draft` | Patches allowlisted fields. Needs `expectedRevision` from a fresh read and a new `commandId`. Refuses when the form has unsaved edits. Cannot submit. |
+| `get_trip_draft` | Reads the saved draft, revision, status, and `hasUnsavedChanges`. Refreshes from the server while preserving local unsaved edits. |
+| `update_trip_draft` | Patches allowlisted fields. Needs `expectedRevision` from a fresh read and a new `commandId`. Refuses dirty, busy, or unresolved state. Cannot submit. |
 | `validate_trip_draft` | Checks that saved revision. Returns field issues and policy findings. A stale `expectedRevision` is `REVISION_CONFLICT` and does not substitute a newer revision. |
+| `prepare_trip_review` | Validates the exact revision and shows an inline review summary in the editor. Leaves the trip as a draft. Does not navigate away or submit. |
+| `recheck_trip_update` | Reconciles the editor’s matching unresolved update without another PATCH. Errors when no matching pending command exists. |
 
 Operate only through those tools. Do not type into the form, call the API yourself, or press **Suggest trip details**. Do not submit.
 

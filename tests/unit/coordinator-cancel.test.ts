@@ -86,4 +86,60 @@ describe("cancellation and outcome recovery", () => {
     await coordinator.applyAgentPatch({ destination: "JFK" }, 1, "cmd-x");
     expect(coordinator.getState().saving).toBe(false);
   });
+
+  it("preserves intervening local edits when rechecking an uncertain update", async () => {
+    let receiptReady = false;
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return { ok: true as const, data: tripView(1) };
+      }
+      if (init?.method === "PATCH") {
+        return {
+          ok: false as const,
+          error: { code: "NETWORK_ERROR", message: "socket hang up" },
+        };
+      }
+      if (path.includes("/commands/cmd-keep")) {
+        if (!receiptReady) {
+          return { ok: false as const, error: { code: "NOT_FOUND", message: "missing" } };
+        }
+        return {
+          ok: true as const,
+          data: {
+            commandId: "cmd-keep",
+            outcome: "applied" as const,
+            tripId: "draft-a",
+            fromRevision: 1,
+            toRevision: 2,
+            fields: {
+              ...defaultTripFields(),
+              destination: "JFK",
+              purpose: "Workshop",
+            } satisfies TripFields,
+            status: "draft" as const,
+            action: "update",
+          },
+        };
+      }
+      throw new Error(path);
+    });
+
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    await coordinator.applyAgentPatch({ destination: "JFK" }, 1, "cmd-keep");
+    expect(coordinator.getState().pendingOutcome?.commandId).toBe("cmd-keep");
+    expect(coordinator.getState().pendingOutcome?.ctx.localAtDispatch.purpose).toBe("Workshop");
+
+    coordinator.updateLocalField("purpose", "Edited after uncertainty");
+    receiptReady = true;
+    const recheck = await coordinator.recheckOutcome({
+      draftId: "draft-a",
+      commandId: "cmd-keep",
+    });
+    expect(recheck.ok).toBe(true);
+    expect(coordinator.getState().savedDraft?.fields.destination).toBe("JFK");
+    expect(coordinator.getState().localFields?.purpose).toBe("Edited after uncertainty");
+    expect(coordinator.getState().dirty).toBe(true);
+    expect(coordinator.getState().pendingOutcome).toBeNull();
+  });
 });

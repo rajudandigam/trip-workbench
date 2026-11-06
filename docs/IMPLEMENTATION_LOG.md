@@ -7,7 +7,8 @@
 | 0 Foundation | complete | Scaffold, Compose/local Postgres, health, docs |
 | 1 Server | complete | Sessions, migrations, seeds, revision/idempotency commands |
 | 2 Manual UI | complete | Login → edit → save → review → submit → refresh (Cypress green) |
-| 3 WebMCP | complete; direct native calls observed 2026-10-20 | Three tools + AbortSignal cleanup. Eval harness still blocks native cases. Chrome DevTools invoked the tools on a running draft; see [RESULTS.md](RESULTS.md). |
+| 3 WebMCP | complete; five tools in Phase 1 | Original three tools plus `prepare_trip_review` and `recheck_trip_update`. AbortSignal cleanup + reactive registration status. Native smoke blocked in Node; see [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md). |
+| Phase 1 (2026-11-06) | complete (code + deterministic evidence) | Refresh merge/ordering, pendingOutcome snapshots, submit revision binding, UI clarity, five tools, evidence docs |
 | 4 Gemini | complete (fixture) | Fixture proposals + stale bindings; live blocked without key |
 | 5 Evidence | complete | Exact case-ID eval registry + AgentInspect hooks + DEMO_RUNBOOK |
 | 6 Summarizer (optional) | complete (API absent) | On-device adapter with honest unavailable path; no auto cloud fallback |

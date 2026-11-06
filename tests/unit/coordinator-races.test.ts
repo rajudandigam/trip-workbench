@@ -323,4 +323,133 @@ describe("coordinator races and isolation", () => {
     expect(res.ok).toBe(true);
     expect(getCsrfToken()).toBeNull();
   });
+
+  it("preserves dirty fields that existed before refreshSavedDraft", async () => {
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        const gets = fetchImpl.mock.calls.filter(
+          (c) => String(c[0]).endsWith("/draft-a") && !c[1]?.method,
+        ).length;
+        if (gets === 1) return { ok: true as const, data: tripView({ revision: 1 }) };
+        return {
+          ok: true as const,
+          data: tripView({ revision: 2 }, { destination: "BOS", purpose: "Workshop" }),
+        };
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    coordinator.updateLocalField("purpose", "Customer planning workshop");
+    expect(coordinator.getState().dirty).toBe(true);
+    const refreshed = await coordinator.refreshSavedDraft("draft-a");
+    expect(refreshed.ok).toBe(true);
+    if (refreshed.ok) {
+      expect(refreshed.data.revision).toBe(2);
+      expect(refreshed.data.fields.destination).toBe("BOS");
+      expect(refreshed.data.hasUnsavedChanges).toBe(true);
+    }
+    expect(coordinator.getState().localFields?.purpose).toBe("Customer planning workshop");
+    expect(coordinator.getState().localFields?.destination).toBe("BOS");
+    expect(coordinator.getState().dirty).toBe(true);
+  });
+
+  it("ignores a superseded refresh that would regress saved revision", async () => {
+    const firstGate = deferred<ApiEnvelope<TripView>>();
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        const gets = fetchImpl.mock.calls.filter(
+          (c) => String(c[0]).endsWith("/draft-a") && !c[1]?.method,
+        ).length;
+        if (gets === 1) return { ok: true as const, data: tripView({ revision: 1 }) };
+        if (gets === 2) return firstGate.promise;
+        return { ok: true as const, data: tripView({ revision: 4 }, { purpose: "newer" }) };
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    const stale = coordinator.refreshSavedDraft("draft-a");
+    const fresh = await coordinator.refreshSavedDraft("draft-a");
+    firstGate.resolve({ ok: true, data: tripView({ revision: 2 }, { purpose: "stale" }) });
+    const staleRes = await stale;
+    expect(fresh.ok).toBe(true);
+    expect(staleRes.ok).toBe(false);
+    if (!staleRes.ok) expect(staleRes.error.code).toBe("CONTEXT_MISMATCH");
+    expect(coordinator.getState().savedDraft?.revision).toBe(4);
+    expect(coordinator.getState().localFields?.purpose).toBe("newer");
+  });
+
+  it("prepares an inline review without submitting and invalidates on edit", async () => {
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return {
+          ok: true as const,
+          data: tripView(
+            { revision: 2 },
+            {
+              origin: "SFO",
+              destination: "JFK",
+              departureDate: "2026-11-19",
+              returnDate: null,
+              tripType: "one_way",
+              cabin: "business",
+              passengerCount: 2,
+              purpose: "Customer planning workshop",
+            },
+          ),
+        };
+      }
+      if (path.endsWith("/validate") && init?.method === "POST") {
+        return {
+          ok: true as const,
+          data: {
+            tripId: "draft-a",
+            revision: 2,
+            policyVersion: "demo-policy-v1",
+            valid: true,
+            canSubmit: true,
+            fieldIssues: [],
+            reviewRequirements: [
+              { code: "PREMIUM_CABIN", message: "Premium cabin requires review." },
+            ],
+          },
+        };
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    const prepared = await coordinator.prepareReview("draft-a", 2);
+    expect(prepared.ok).toBe(true);
+    if (prepared.ok) {
+      expect(prepared.data.submitted).toBe(false);
+      expect(prepared.data.status).toBe("draft");
+      expect(prepared.data.reviewRequirements[0]?.code).toBe("PREMIUM_CABIN");
+    }
+    expect(coordinator.getState().preparedReview?.preparedAtRevision).toBe(2);
+    coordinator.updateLocalField("purpose", "changed");
+    expect(coordinator.getState().preparedReview).toBeNull();
+  });
+
+  it("binds submit to the reviewed revision and refuses a stale review", async () => {
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return { ok: true as const, data: tripView({ revision: 5 }) };
+      }
+      if (path.endsWith("/submit") && init?.method === "POST") {
+        throw new Error("should not submit with stale review");
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    const res = await coordinator.submit(3, "demo-policy-v1");
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("REVIEW_STALE");
+      expect(res.error.currentRevision).toBe(5);
+    }
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).includes("/submit"))).toBe(false);
+  });
 });

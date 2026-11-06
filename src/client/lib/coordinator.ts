@@ -6,7 +6,12 @@ import type {
   ValidationResult,
 } from "../../domain/types.js";
 import { fieldsEqual } from "../../domain/trip-rules.js";
-import { isStaleOp, mergeAfterInFlightEdit, type AsyncOpContext } from "../../domain/async-result.js";
+import {
+  isStaleOp,
+  mergeAfterInFlightEdit,
+  mergeAfterRefresh,
+  type AsyncOpContext,
+} from "../../domain/async-result.js";
 import { api, getCsrfToken, newCommandId, setCsrfToken } from "./api.js";
 
 export type SessionInfo = {
@@ -23,6 +28,13 @@ export type PendingOutcome = {
   commandId: string;
   sessionGeneration: number;
   editorGeneration: number;
+  /** Original mutation context; recheck must reuse these snapshots. */
+  ctx: AsyncOpContext;
+};
+
+export type PreparedReview = ValidationResult & {
+  preparedAtRevision: number;
+  submitted: false;
 };
 
 export type EditorState = {
@@ -39,6 +51,7 @@ export type EditorState = {
   editorGeneration: number;
   signingOut: boolean;
   pendingOutcome: PendingOutcome | null;
+  preparedReview: PreparedReview | null;
   proposalBinding: {
     draftId: string;
     boundRevision: number;
@@ -73,6 +86,8 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
   let operationSeq = 0;
   let activeOperationId: number | null = null;
   let openDraftRequestId = 0;
+  let refreshRequestId = 0;
+  let submitCommandId: string | null = null;
 
   let state: EditorState = {
     savedDraft: null,
@@ -88,6 +103,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
     editorGeneration: 0,
     signingOut: false,
     pendingOutcome: null,
+    preparedReview: null,
     proposalBinding: null,
   };
   const listeners = new Set<() => void>();
@@ -152,6 +168,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       fields?: TripFields;
       tripId: string;
       outcome: string;
+      status?: TripView["status"];
     },
   ): Fail | Ok<typeof receipt> {
     if (isStaleOp(ctx, currentGuard())) {
@@ -171,6 +188,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
     ) {
       endOperation(ctx.operationId);
       setState({
+        pendingOutcome: null,
         message:
           "Received a historical command receipt. Current saved state was left unchanged; local edits were preserved.",
       });
@@ -187,6 +205,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       ...state.savedDraft,
       revision: receipt.toRevision ?? state.savedDraft.revision,
       fields: receipt.fields,
+      status: receipt.status ?? state.savedDraft.status,
     };
 
     if (!editedDuring) {
@@ -196,6 +215,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         dirty: false,
         message: null,
         pendingOutcome: null,
+        preparedReview: null,
       });
       endOperation(ctx.operationId);
       return { ok: true, data: receipt };
@@ -216,6 +236,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       dirty: merged.dirty,
       message: `Saved state advanced while you were editing. Newer local edits were kept.${overlapNote}`,
       pendingOutcome: null,
+      preparedReview: null,
     });
     endOperation(ctx.operationId);
     return { ok: true, data: receipt };
@@ -251,7 +272,9 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         commandId,
         sessionGeneration: ctx.sessionGeneration,
         editorGeneration: ctx.editorGeneration,
+        ctx,
       },
+      preparedReview: null,
       message:
         "We could not confirm whether this change saved. Use Recheck outcome before retrying a mutation.",
     });
@@ -261,6 +284,12 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       draftId,
       retry: "recheck_outcome",
     });
+  }
+
+  function clearPreparedReview() {
+    if (state.preparedReview) {
+      setState({ preparedReview: null });
+    }
   }
 
   return {
@@ -282,6 +311,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
     leaveEditor() {
       editorGeneration += 1;
       activeOperationId = null;
+      submitCommandId = null;
       setState({
         editorGeneration,
         savedDraft: null,
@@ -293,6 +323,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         proposalBinding: null,
         // pendingOutcome is draft-scoped; clear on leave to avoid cross-draft recovery
         pendingOutcome: null,
+        preparedReview: null,
         message: null,
       });
     },
@@ -300,6 +331,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       sessionGeneration += 1;
       editorGeneration += 1;
       activeOperationId = null;
+      submitCommandId = null;
       setState({
         savedDraft: null,
         localFields: null,
@@ -310,6 +342,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         briefVersion: 0,
         proposalBinding: null,
         pendingOutcome: null,
+        preparedReview: null,
         signingOut: false,
       });
     },
@@ -333,6 +366,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
           dirty: false,
           proposalBinding: null,
           pendingOutcome: null,
+          preparedReview: null,
         });
       }
       return res;
@@ -365,6 +399,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
             saving: false,
             proposalBinding: null,
             pendingOutcome: null,
+            preparedReview: null,
             message: null,
           });
           return { ok: true as const, data: { signedOut: true, alreadyExpired: true } };
@@ -390,6 +425,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         saving: false,
         proposalBinding: null,
         pendingOutcome: null,
+        preparedReview: null,
         message: null,
         brief: "",
         briefVersion: 0,
@@ -437,12 +473,13 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         briefVersion: 0,
         message: null,
         proposalBinding: null,
+        preparedReview: null,
       });
       return res;
     },
     /**
      * Refresh authorized saved state without discarding local unsaved edits.
-     * Used by get_trip_draft so cross-tab revisions are visible.
+     * Preserves dirty fields present before the read and edits made during it.
      */
     async refreshSavedDraft(draftId: string) {
       if (state.signingOut) {
@@ -452,41 +489,65 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         return fail("CONTEXT_MISMATCH", "Open the requested draft first.");
       }
       const ctxDraft = draftId;
-      const editVersion = state.editVersion;
-      const localNow = { ...state.localFields };
-      const savedBefore = { ...state.savedDraft.fields };
+      const localAtDispatch = { ...state.localFields };
+      const savedAtDispatch = { ...state.savedDraft.fields };
+      const revisionAtDispatch = state.savedDraft.revision;
       const sessionGen = sessionGeneration;
       const editorGen = editorGeneration;
+      const requestId = ++refreshRequestId;
 
       const res = await request<TripView>(`/api/trips/${ctxDraft}`);
+      if (requestId !== refreshRequestId) {
+        return fail("CONTEXT_MISMATCH", "Ignored superseded draft refresh.");
+      }
       if (sessionGen !== sessionGeneration || editorGen !== editorGeneration) {
         return fail("CONTEXT_MISMATCH", "Editor context changed during refresh.");
       }
       if (!res.ok) {
         return res;
       }
-      if (!state.savedDraft || state.savedDraft.id !== ctxDraft) {
+      if (!state.savedDraft || state.savedDraft.id !== ctxDraft || !state.localFields) {
         return fail("CONTEXT_MISMATCH", "Draft is no longer open.");
       }
 
-      const localCurrent = state.localFields ? { ...state.localFields } : localNow;
-      const hadLocalEdits =
-        !fieldsEqual(localNow, savedBefore) || !fieldsEqual(localCurrent, savedBefore);
-      const finalMerge = mergeAfterInFlightEdit({
-        savedAtDispatch: savedBefore,
-        localAtDispatch: localNow,
-        localNow: localCurrent,
+      // Never move the saved baseline backward from an older overlapping read.
+      if (res.data.revision < state.savedDraft.revision) {
+        return {
+          ok: true as const,
+          data: {
+            id: state.savedDraft.id,
+            revision: state.savedDraft.revision,
+            status: state.savedDraft.status,
+            fields: state.savedDraft.fields,
+            hasUnsavedChanges: state.dirty,
+          },
+        };
+      }
+
+      const localNow = { ...state.localFields };
+      const merged = mergeAfterRefresh({
+        savedAtDispatch,
+        localAtDispatch,
+        localNow,
         serverFields: res.data.fields,
       });
-      const nextLocal = hadLocalEdits ? finalMerge.localFields : { ...res.data.fields };
-      const nextDirty = hadLocalEdits
-        ? !fieldsEqual(nextLocal, res.data.fields)
-        : false;
-      void editVersion;
+      const nextDirty = merged.dirty;
+      const overlapNote = merged.overlapped.length
+        ? ` Overlapping fields kept locally: ${merged.overlapped.join(", ")}.`
+        : "";
+      const revisionAdvanced = res.data.revision > revisionAtDispatch;
       setState({
         savedDraft: { ...res.data },
-        localFields: nextLocal,
+        localFields: merged.localFields,
         dirty: nextDirty,
+        preparedReview:
+          state.preparedReview && state.preparedReview.preparedAtRevision === res.data.revision
+            ? state.preparedReview
+            : null,
+        message:
+          revisionAdvanced && nextDirty
+            ? `Saved state refreshed while you had unsaved edits. Local edits were kept.${overlapNote}`
+            : state.message,
       });
       return {
         ok: true as const,
@@ -506,6 +567,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         localFields,
         editVersion: state.editVersion + 1,
         dirty: !fieldsEqual(localFields, state.savedDraft.fields),
+        preparedReview: null,
       });
     },
     updateBrief(brief: string) {
@@ -518,6 +580,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         dirty: false,
         editVersion: state.editVersion + 1,
         message: null,
+        preparedReview: null,
       });
     },
     hasUnsavedChanges() {
@@ -724,9 +787,15 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
     clearProposalBinding() {
       setState({ proposalBinding: null });
     },
-    async recheckOutcome() {
+    async recheckOutcome(opts?: { draftId?: string; commandId?: string }) {
       const pending = state.pendingOutcome;
       if (!pending) return fail("NOT_FOUND", "No unresolved outcome.");
+      if (opts?.draftId && opts.draftId !== pending.draftId) {
+        return fail("CONTEXT_MISMATCH", "Pending outcome belongs to a different draft.");
+      }
+      if (opts?.commandId && opts.commandId !== pending.commandId) {
+        return fail("CONTEXT_MISMATCH", "commandId does not match the unresolved update.");
+      }
       if (
         pending.sessionGeneration !== sessionGeneration ||
         pending.editorGeneration !== editorGeneration ||
@@ -738,32 +807,159 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       if (!state.localFields || !state.savedDraft) {
         return fail("NOT_FOUND", "No draft open.");
       }
+      // Reuse the original dispatch snapshots so intervening edits stay attributable.
       const ctx: AsyncOpContext = {
-        sessionGeneration,
-        editorGeneration,
-        draftId: pending.draftId,
+        ...pending.ctx,
         operationId: beginOperation(),
-        expectedRevision: state.savedDraft.revision,
-        editVersionAtDispatch: state.editVersion,
-        localAtDispatch: { ...state.localFields },
-        savedAtDispatch: { ...state.savedDraft.fields },
+        sessionGeneration: pending.sessionGeneration,
+        editorGeneration: pending.editorGeneration,
       };
       setState({ saving: true });
       return reconcileCommand(pending.draftId, pending.commandId, ctx);
     },
-    async submit(reviewedPolicyVersion: string) {
-      if (!state.savedDraft || state.dirty) return null;
+    async prepareReview(draftId: string, expectedRevision: number) {
+      if (state.signingOut) {
+        return fail("FORBIDDEN", "Sign-out in progress.");
+      }
+      if (!state.savedDraft || state.savedDraft.id !== draftId || !state.localFields) {
+        return fail("CONTEXT_MISMATCH", "Open the requested draft first.");
+      }
+      if (state.dirty) {
+        return fail(
+          "USER_EDIT_IN_PROGRESS",
+          "Save or discard local edits before preparing a review.",
+        );
+      }
+      if (state.saving || activeOperationId != null) {
+        return fail("COMMAND_IN_PROGRESS", "Wait for the in-flight operation to finish.");
+      }
+      if (state.pendingOutcome) {
+        return fail("OUTCOME_UNKNOWN", "Resolve the previous uncertain mutation first.", {
+          commandId: state.pendingOutcome.commandId,
+        });
+      }
+      if (state.savedDraft.revision !== expectedRevision) {
+        return fail("REVISION_CONFLICT", "This draft changed.", {
+          currentRevision: state.savedDraft.revision,
+          retry: "refresh_and_review",
+        });
+      }
+      if (state.savedDraft.status !== "draft") {
+        return fail("INVALID_STATUS", "Only draft trips can prepare a review.");
+      }
+      const res = await request<ValidationResult>(`/api/trips/${draftId}/validate`, {
+        method: "POST",
+        body: JSON.stringify({ expectedRevision }),
+      });
+      if (!res.ok) {
+        return res;
+      }
+      if (!state.savedDraft || state.savedDraft.id !== draftId) {
+        return fail("CONTEXT_MISMATCH", "Draft is no longer open.");
+      }
+      if (state.savedDraft.revision !== expectedRevision || state.dirty) {
+        return fail("REVISION_CONFLICT", "This draft changed while preparing review.", {
+          currentRevision: state.savedDraft.revision,
+          retry: "refresh_and_review",
+        });
+      }
+      const prepared: PreparedReview = {
+        ...res.data,
+        preparedAtRevision: expectedRevision,
+        submitted: false,
+      };
+      setState({ preparedReview: prepared, message: null });
+      return {
+        ok: true as const,
+        data: {
+          tripId: draftId,
+          revision: prepared.revision,
+          policyVersion: prepared.policyVersion,
+          valid: prepared.valid,
+          canSubmit: prepared.canSubmit,
+          fieldIssues: prepared.fieldIssues,
+          reviewRequirements: prepared.reviewRequirements,
+          submitted: false as const,
+          status: "draft" as const,
+        },
+      };
+    },
+    clearPreparedReview() {
+      clearPreparedReview();
+    },
+    async submit(reviewedRevision: number, reviewedPolicyVersion: string) {
+      if (!state.savedDraft || !state.localFields) {
+        return fail("NOT_FOUND", "No draft open.");
+      }
+      if (state.dirty) {
+        return fail("USER_EDIT_IN_PROGRESS", "Save or discard edits before submitting.");
+      }
       if (state.pendingOutcome) {
         return fail("OUTCOME_UNKNOWN", "Resolve the previous uncertain mutation first.");
       }
-      return request(`/api/trips/${state.savedDraft.id}/submit`, {
+      if (state.saving || activeOperationId != null) {
+        return fail("COMMAND_IN_PROGRESS", "A mutation is already in progress.");
+      }
+      if (state.savedDraft.revision !== reviewedRevision) {
+        return fail(
+          "REVIEW_STALE",
+          "Saved state changed since this review. Refresh and review again.",
+          {
+            reviewedRevision,
+            currentRevision: state.savedDraft.revision,
+          },
+        );
+      }
+      const draftId = state.savedDraft.id;
+      const commandId = submitCommandId ?? newCommandId();
+      submitCommandId = commandId;
+      const ctx = captureOp(draftId, reviewedRevision);
+      setState({ saving: true, message: null });
+      const res = await request<{
+        outcome: string;
+        toRevision: number | null;
+        tripId: string;
+        status: string;
+        fields?: TripFields;
+      }>(`/api/trips/${draftId}/submit`, {
         method: "POST",
         body: JSON.stringify({
-          expectedRevision: state.savedDraft.revision,
+          expectedRevision: reviewedRevision,
           reviewedPolicyVersion,
-          commandId: newCommandId(),
+          commandId,
         }),
       });
+      if (isStaleOp(ctx, currentGuard())) {
+        endOperation(ctx.operationId);
+        return fail("CONTEXT_MISMATCH", "Submit result ignored after context change.");
+      }
+      if (!res.ok) {
+        if (res.error.code === "ABORTED" || res.error.code === "NETWORK_ERROR") {
+          return reconcileCommand(draftId, commandId, ctx);
+        }
+        endOperation(ctx.operationId);
+        setState({ saving: false, message: res.error.message });
+        if (res.error.code === "REVISION_CONFLICT") {
+          submitCommandId = null;
+        }
+        return res;
+      }
+      submitCommandId = null;
+      setState({
+        savedDraft: {
+          ...state.savedDraft,
+          status: "submitted",
+          revision: res.data.toRevision ?? state.savedDraft.revision,
+          fields: res.data.fields ?? state.savedDraft.fields,
+        },
+        localFields: { ...(res.data.fields ?? state.savedDraft.fields) },
+        dirty: false,
+        preparedReview: null,
+        pendingOutcome: null,
+        message: null,
+      });
+      endOperation(ctx.operationId);
+      return res;
     },
   };
 }

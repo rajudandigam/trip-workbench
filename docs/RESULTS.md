@@ -1,19 +1,22 @@
 # Results
 
-Repair evidence date: 2026-10-15, starting from `c4ef8a6`. Those repair checks were recorded before the later commit. The WebMCP session further down was observed on 2026-10-20 against the running app.
+Phase 1 evidence date: 2026-11-06, starting from `9485a47`. Earlier repair checks (2026-10-15 from `c4ef8a6`) and the 2026-10-20 three-tool Chrome session remain historical context below.
 
 | Check | Status | Evidence |
 |-------|--------|----------|
 | typecheck | pass | `npm run typecheck` |
 | lint | pass | `npm run lint` |
 | build | pass | `npm run build` (also via e2e harness) |
-| test:unit | pass | 27 tests (schemas, async-result, races, cancel, logout, fixture, summarizer) |
+| test:unit | pass | 35 tests (refresh merge/ordering, recheck snapshots, prepare review, submit binding, races, cancel, schemas, fixture, summarizer) |
 | test:api | pass | isolated local test DB; includes stale validate `REVISION_CONFLICT` |
 | test:e2e | pass | Cypress electron manual journey |
-| test:evals | pass (0 fail) | exact case-ID registry: 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-10-15T20-48-44-330Z.json` |
-| native WebMCP | observed, direct calls only | 2026-10-20 Chrome DevTools session below. The 2026-10-15 eval harness still marks native cases blocked. |
-| live Gemini | unverified / blocked | no key required for this repair; fixture mode used |
-| model-driven WebMCP | unverified | the 2026-10-20 session invoked tools directly; a model-chosen eval trajectory was not recorded |
+| test:evals | pass (0 fail) | 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-11-06T01-34-17-272Z.json` |
+| test:native-smoke | blocked | Node host lacks WebMCP browser attachment — `evals/evidence/native-smoke-2026-11-06T01-34-07-039Z.json` |
+| native WebMCP | partial | 2026-10-20 Chrome DevTools session for the original three tools. Five-tool native discovery not re-run in this Phase 1 session. |
+| live Gemini | unverified / blocked | not required for Phase 1 core |
+| model-driven WebMCP | blocked | no model-chosen trajectory recorded in Phase 1 |
+
+Full Phase 1 gate write-up: [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md).
 
 ## Live WebMCP observation (2026-10-20)
 

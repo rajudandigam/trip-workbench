@@ -185,3 +185,37 @@ textarea {
   padding: 0.45rem 0.3rem;
   font-size: 0.95rem;
 }
+
+.status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  text-transform: lowercase;
+}
+
+.status-draft {
+  background: #eef3ff;
+  color: #1f5eff;
+}
+
+.status-submitted {
+  background: #e8f6ee;
+  color: #0f7a3a;
+}
+
+.saved-summary {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: #fafbfc;
+}
+
+.editor-status {
+  font-size: 0.95rem;
+}
+
+.registration-status {
+  font-size: 0.85rem;
+}

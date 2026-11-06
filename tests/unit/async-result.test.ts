@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeAfterInFlightEdit } from "../../src/domain/async-result.js";
+import { mergeAfterInFlightEdit, mergeAfterRefresh } from "../../src/domain/async-result.js";
 import { defaultTripFields } from "../../src/domain/types.js";
 
 describe("mergeAfterInFlightEdit", () => {
@@ -26,6 +26,56 @@ describe("mergeAfterInFlightEdit", () => {
     const localNow = { ...savedAtDispatch, purpose: "Human" };
     const serverFields = { ...savedAtDispatch, purpose: "Agent" };
     const merged = mergeAfterInFlightEdit({
+      savedAtDispatch,
+      localAtDispatch,
+      localNow,
+      serverFields,
+    });
+    expect(merged.localFields.purpose).toBe("Human");
+    expect(merged.overlapped).toContain("purpose");
+  });
+});
+
+describe("mergeAfterRefresh", () => {
+  it("preserves dirty fields that existed before the read started", () => {
+    const savedAtDispatch = { ...defaultTripFields(), purpose: "Workshop", destination: "JFK" };
+    const localAtDispatch = { ...savedAtDispatch, purpose: "Customer planning workshop" };
+    const localNow = { ...localAtDispatch };
+    const serverFields = { ...savedAtDispatch, destination: "BOS" };
+    const merged = mergeAfterRefresh({
+      savedAtDispatch,
+      localAtDispatch,
+      localNow,
+      serverFields,
+    });
+    expect(merged.localFields.purpose).toBe("Customer planning workshop");
+    expect(merged.localFields.destination).toBe("BOS");
+    expect(merged.dirty).toBe(true);
+  });
+
+  it("also preserves edits made while the read is in flight", () => {
+    const savedAtDispatch = { ...defaultTripFields(), purpose: "Workshop", cabin: "economy" as const };
+    const localAtDispatch = { ...savedAtDispatch, purpose: "Dirty before" };
+    const localNow = { ...localAtDispatch, cabin: "business" as const };
+    const serverFields = { ...savedAtDispatch, destination: "JFK" as const };
+    const merged = mergeAfterRefresh({
+      savedAtDispatch,
+      localAtDispatch,
+      localNow,
+      serverFields,
+    });
+    expect(merged.localFields.purpose).toBe("Dirty before");
+    expect(merged.localFields.cabin).toBe("business");
+    expect(merged.localFields.destination).toBe("JFK");
+    expect(merged.dirty).toBe(true);
+  });
+
+  it("marks overlap when a dirty local field also changed on the server", () => {
+    const savedAtDispatch = { ...defaultTripFields(), purpose: "A" };
+    const localAtDispatch = { ...savedAtDispatch, purpose: "Human" };
+    const localNow = { ...localAtDispatch };
+    const serverFields = { ...savedAtDispatch, purpose: "Elsewhere" };
+    const merged = mergeAfterRefresh({
       savedAtDispatch,
       localAtDispatch,
       localNow,

@@ -9,6 +9,11 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    return props.coordinator.subscribe(() => tick((n) => n + 1));
+  }, [props.coordinator]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +51,7 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
   async function submit() {
     if (!validation) return;
     setBusy(true);
-    const res = await props.coordinator.submit(validation.policyVersion);
+    const res = await props.coordinator.submit(validation.revision, validation.policyVersion);
     setBusy(false);
     if (!res || !res.ok) {
       setError(res && !res.ok ? res.error.message : "Submit failed");
@@ -58,9 +63,9 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
   return (
     <div className="panel stack">
       <h1>Review request</h1>
-      {error ? <p className="error">{error}</p> : null}
+      {error ? <p className="error" data-testid="review-error">{error}</p> : null}
       {draft ? (
-        <div className="stack">
+        <div className="stack" data-testid="review-fields">
           <p>
             <strong>
               {draft.fields.origin} → {draft.fields.destination}
@@ -68,17 +73,22 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
           </p>
           <p className="muted">
             {draft.fields.departureDate}
-            {draft.fields.returnDate ? ` – ${draft.fields.returnDate}` : ""} · {draft.fields.cabin} ·{" "}
-            {draft.fields.purpose || "(no purpose)"}
+            {draft.fields.returnDate ? ` – ${draft.fields.returnDate}` : ""} · {draft.fields.tripType} ·{" "}
+            {draft.fields.cabin} · {draft.fields.passengerCount} traveler
+            {draft.fields.passengerCount === 1 ? "" : "s"}
           </p>
-          <p className="muted">Saved revision {draft.revision}</p>
+          <p className="muted">Purpose: {draft.fields.purpose || "(none)"}</p>
+          <p className="muted" data-testid="review-revision">
+            Reviewed revision {validation?.revision ?? draft.revision}
+            {validation ? ` · policy ${validation.policyVersion}` : ""}
+          </p>
         </div>
       ) : null}
       {validation ? (
-        <div className="stack">
+        <div className="stack" data-testid="review-findings">
           <h2>Validation</h2>
           {validation.fieldIssues.length ? (
-            <ul>
+            <ul data-testid="review-field-issues">
               {validation.fieldIssues.map((issue) => (
                 <li key={`${issue.field}-${issue.code}`} className="error">
                   {issue.field}: {issue.message}
@@ -86,18 +96,25 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
               ))}
             </ul>
           ) : (
-            <p>All required fields look complete.</p>
+            <p data-testid="review-fields-complete">All required fields look complete.</p>
           )}
           {validation.reviewRequirements.length ? (
-            <div className="notice">
+            <div className="notice" data-testid="review-requirements">
               <strong>Review requirements</strong>
+              <p className="muted">These do not block submission by themselves.</p>
               <ul>
                 {validation.reviewRequirements.map((r) => (
-                  <li key={r.code}>{r.message}</li>
+                  <li key={r.code}>
+                    <code>{r.code}</code>: {r.message}
+                  </li>
                 ))}
               </ul>
             </div>
-          ) : null}
+          ) : (
+            <p className="muted" data-testid="review-no-requirements">
+              No additional policy review requirements.
+            </p>
+          )}
         </div>
       ) : null}
       <div className="row">
@@ -107,6 +124,7 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
         <button
           type="button"
           className="btn"
+          data-testid="submit-request"
           disabled={!validation?.canSubmit || busy || !props.session.capabilities.canMutateTrips}
           onClick={() => void submit()}
         >

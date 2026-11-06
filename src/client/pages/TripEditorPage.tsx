@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { Cabin, TripType } from "../../domain/types";
+import type { Cabin, TripFields, TripType } from "../../domain/types";
 import type { Coordinator, SessionInfo } from "../lib/coordinator";
-import { registerTripDraftTools } from "../lib/webmcp";
+import { registerTripDraftTools, type ToolRegistrationState } from "../lib/webmcp";
 import { summarizeBriefOnDevice } from "../lib/summarizer";
 import { newCommandId } from "../lib/api";
 
@@ -16,6 +16,28 @@ type ProposalView = {
   mode: string;
 };
 
+function formatSavedSummary(fields: TripFields): string {
+  const route = `${fields.origin || "—"} → ${fields.destination || "—"}`;
+  const dates =
+    fields.tripType === "one_way" || !fields.returnDate
+      ? fields.departureDate || "No departure"
+      : `${fields.departureDate || "—"} – ${fields.returnDate}`;
+  return `${route} · ${dates} · ${fields.tripType} · ${fields.cabin} · ${fields.passengerCount} traveler${
+    fields.passengerCount === 1 ? "" : "s"
+  }`;
+}
+
+function editorStatusLabel(state: {
+  dirty: boolean;
+  saving: boolean;
+  pendingOutcome: unknown;
+}): string {
+  if (state.pendingOutcome) return "Unknown outcome";
+  if (state.saving) return "Saving…";
+  if (state.dirty) return "Unsaved changes";
+  return "Saved";
+}
+
 export function TripEditorPage(props: { coordinator: Coordinator; session: SessionInfo }) {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -25,6 +47,10 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
   const [proposing, setProposing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryNote, setSummaryNote] = useState<string | null>(null);
+  const [registration, setRegistration] = useState<ToolRegistrationState>({
+    phase: "unsupported",
+    detail: "Waiting for draft context",
+  });
 
   useEffect(() => {
     return props.coordinator.subscribe(() => {
@@ -57,16 +83,25 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
   const draftStatus = state.savedDraft?.status;
 
   useEffect(() => {
-    if (!draftId || draftStatus !== "draft") return;
+    if (!draftId || draftStatus !== "draft") {
+      setRegistration({
+        phase: "unsupported",
+        detail: draftStatus === "submitted" ? "Submitted trips do not expose editing tools" : "No draft open",
+      });
+      return;
+    }
     const controller = new AbortController();
+    setRegistration({ phase: "registering", detail: "Registering draft tools…" });
     registerTripDraftTools({
       draftId,
       canMutate: Boolean(canMutate),
       coordinator: props.coordinator,
       signal: controller.signal,
+      onStatus: setRegistration,
     });
     return () => {
       controller.abort();
+      setRegistration({ phase: "unsupported", detail: "Tools cleaned up" });
     };
   }, [draftId, draftStatus, canMutate, props.coordinator]);
 
@@ -79,6 +114,8 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
   }
 
   const fields = state.localFields;
+  const prepared = state.preparedReview;
+  const statusLabel = editorStatusLabel(state);
 
   async function save() {
     const res = await props.coordinator.saveManualPatch();
@@ -144,17 +181,33 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
       <section className="panel stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1>Edit request</h1>
-          <span className="muted">
-            rev {state.savedDraft.revision} · {state.dirty ? "Unsaved changes" : "Saved"}
+          <span className="muted editor-status" data-testid="editor-status">
+            rev <span data-testid="saved-revision">{state.savedDraft.revision}</span> ·{" "}
+            <span data-testid="editor-save-state">{statusLabel}</span>
           </span>
         </div>
-        {state.message ? <div className="notice">{state.message}</div> : null}
+
+        <div className="saved-summary" data-testid="saved-summary">
+          <strong>Saved state</strong>
+          <div className="muted">{formatSavedSummary(state.savedDraft.fields)}</div>
+          <div className="muted">Purpose: {state.savedDraft.fields.purpose || "(none)"}</div>
+        </div>
+
+        {state.message ? (
+          <div className="notice" data-testid="editor-message">
+            {state.message}
+          </div>
+        ) : null}
         {state.pendingOutcome ? (
-          <div className="notice row">
-            <span>Unresolved mutation {state.pendingOutcome.commandId}</span>
+          <div className="notice row" data-testid="pending-outcome">
+            <span>
+              Unresolved update <code>{state.pendingOutcome.commandId}</code>. Saved state may or may
+              not include that change. Recheck before another write.
+            </span>
             <button
               type="button"
               className="btn secondary"
+              data-testid="recheck-outcome"
               onClick={() => {
                 void props.coordinator.recheckOutcome().then((res) => {
                   if (!res.ok) setError(res.error.message);
@@ -165,7 +218,51 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
             </button>
           </div>
         ) : null}
-        {error ? <p className="error">{error}</p> : null}
+        {error ? (
+          <p className="error" data-testid="editor-error">
+            {error}
+          </p>
+        ) : null}
+
+        {prepared ? (
+          <div className="notice stack" data-testid="prepared-review">
+            <strong>Prepared review (inline)</strong>
+            <p className="muted">
+              Revision {prepared.revision} · policy {prepared.policyVersion} · still a draft · not
+              submitted
+            </p>
+            {prepared.fieldIssues.length ? (
+              <ul data-testid="prepared-field-issues">
+                {prepared.fieldIssues.map((issue) => (
+                  <li key={`${issue.field}-${issue.code}`} className="error">
+                    {issue.field}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p data-testid="prepared-fields-complete">No blocking field issues.</p>
+            )}
+            {prepared.reviewRequirements.length ? (
+              <ul data-testid="prepared-review-requirements">
+                {prepared.reviewRequirements.map((r) => (
+                  <li key={r.code}>
+                    <code>{r.code}</code>: {r.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="muted">
+              canSubmit={String(prepared.canSubmit)}. Use Review request to open the submission page.
+            </p>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => props.coordinator.clearPreparedReview()}
+            >
+              Dismiss prepared review
+            </button>
+          </div>
+        ) : null}
 
         <div className="row">
           <Field
@@ -271,12 +368,19 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
         </div>
 
         <div className="row">
-          <button type="button" className="btn" disabled={!canMutate || !state.dirty || state.saving} onClick={() => void save()}>
+          <button
+            type="button"
+            className="btn"
+            data-testid="save-draft"
+            disabled={!canMutate || !state.dirty || state.saving || Boolean(state.pendingOutcome)}
+            onClick={() => void save()}
+          >
             Save draft
           </button>
           <button
             type="button"
             className="btn secondary"
+            data-testid="discard-changes"
             disabled={!canMutate || !state.dirty}
             onClick={() => props.coordinator.discardLocal()}
           >
@@ -285,7 +389,8 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
           <button
             type="button"
             className="btn secondary"
-            disabled={state.dirty || state.saving}
+            data-testid="review-request"
+            disabled={state.dirty || state.saving || Boolean(state.pendingOutcome)}
             onClick={() => navigate(`/trips/${id}/review`)}
             title={state.dirty ? "Save your changes before reviewing." : undefined}
           >
@@ -301,6 +406,10 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
       <aside className="panel stack">
         <h2>Assistance</h2>
         <p className="muted">Gemini assistance proposes fields. You review before anything is saved.</p>
+        <p className="muted registration-status" data-testid="webmcp-registration">
+          WebMCP: {registration.phase}
+          {registration.detail ? ` — ${registration.detail}` : ""}
+        </p>
         <div className="field">
           <label htmlFor="brief">Travel brief</label>
           <textarea
@@ -320,7 +429,12 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
         >
           {proposing ? "Suggesting…" : "Suggest trip details"}
         </button>
-        <button type="button" className="btn secondary" disabled={!state.brief.trim()} onClick={() => void onSummarize()}>
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={!state.brief.trim()}
+          onClick={() => void onSummarize()}
+        >
           Summarize brief on this device
         </button>
         {summaryNote ? <p className="muted">{summaryNote}</p> : null}
