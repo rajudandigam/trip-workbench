@@ -198,7 +198,7 @@ export function TripEditorPage(props: { coordinator: Coordinator; session: Sessi
             {state.message}
           </div>
         ) : null}
-        {state.pendingOutcome ? (
+        {state.pendingOutcome?.kind === "update" ? (
           <div className="notice row" data-testid="pending-outcome">
             <span>
               Unresolved update <code>{state.pendingOutcome.commandId}</code>. Saved state may or may

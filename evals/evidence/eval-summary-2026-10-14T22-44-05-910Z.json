@@ -1,0 +1,179 @@
+{
+  "total": 34,
+  "pass": 0,
+  "fail": 0,
+  "blocked": 0,
+  "not_run": 34,
+  "results": [
+    {
+      "id": "MODEL-EXACT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "MODEL-AMBIGUOUS",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "MODEL-PURCHASE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "DRAFT-PARTIAL",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "INPUT-SHAPE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "INPUT-CROSS-FIELD",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "POLICY-REVIEW",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "RACE-CAS",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "RACE-UNSAVED",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "RACE-PROPOSAL",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "RACE-INFLIGHT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "IDEMPOTENT-RETRY",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "IDEMPOTENT-CONFLICT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "ACCESS-BOUNDARY",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "CANCEL-PREDISPATCH",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "CANCEL-POSTDISPATCH",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "LIFECYCLE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "SUBMIT-REPLAY",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "SUBMIT-STALE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "OUTCOME-ORACLE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "LOCAL-CONSENT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "LOCAL-LATE-CREATE",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "MANUAL-REFRESH",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "DATE-CALENDAR",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "ONEWAY-RETURN",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "NOOP-REVISION",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "IDEMPOTENT-OLD-RECEIPT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "CSRF-BOUNDARY",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "WEBMCP-UNSUPPORTED",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "TOOL-CONTEXT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "PROVIDER-INVALID",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "PROVIDER-TRANSIENT",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "AI-REVIEW-APPLY",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    },
+    {
+      "id": "RACE-BRIEF",
+      "status": "not_run",
+      "reason": "No deterministic mapping implemented for this scenario yet"
+    }
+  ]
+}

@@ -432,6 +432,114 @@ describe("coordinator races and isolation", () => {
     expect(coordinator.getState().preparedReview).toBeNull();
   });
 
+  it("refuses a prepareReview result when a write starts during validation", async () => {
+    const validating = deferred<ApiEnvelope<{
+      tripId: string;
+      revision: number;
+      policyVersion: string;
+      valid: boolean;
+      canSubmit: boolean;
+      fieldIssues: [];
+      reviewRequirements: [];
+    }>>();
+    const write = deferred<ApiEnvelope<{
+      outcome: string;
+      toRevision: number;
+      fields: TripFields;
+      tripId: string;
+      commandId: string;
+    }>>();
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return { ok: true as const, data: tripView() };
+      }
+      if (path.endsWith("/validate") && init?.method === "POST") {
+        return validating.promise;
+      }
+      if (init?.method === "PATCH") {
+        return write.promise;
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    const review = coordinator.prepareReview("draft-a", 1);
+    const patch = coordinator.applyAgentPatch({ purpose: "Changed" }, 1, "overlap");
+    validating.resolve({
+      ok: true,
+      data: {
+        tripId: "draft-a",
+        revision: 1,
+        policyVersion: "demo-policy-v1",
+        valid: true,
+        canSubmit: true,
+        fieldIssues: [],
+        reviewRequirements: [],
+      },
+    });
+    const reviewed = await review;
+    expect(reviewed.ok).toBe(false);
+    if (!reviewed.ok) expect(reviewed.error.code).toBe("COMMAND_IN_PROGRESS");
+    expect(coordinator.getState().preparedReview).toBeNull();
+    expect(coordinator.getState().saving).toBe(true);
+    write.resolve({
+      ok: true,
+      data: {
+        outcome: "applied",
+        toRevision: 2,
+        fields: { ...defaultTripFields(), purpose: "Changed" },
+        tripId: "draft-a",
+        commandId: "overlap",
+      },
+    });
+    await patch;
+  });
+
+  it("refuses a prepareReview result after leaving and reopening the same draft", async () => {
+    const validating = deferred<ApiEnvelope<{
+      tripId: string;
+      revision: number;
+      policyVersion: string;
+      valid: boolean;
+      canSubmit: boolean;
+      fieldIssues: [];
+      reviewRequirements: [];
+    }>>();
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return { ok: true as const, data: tripView() };
+      }
+      if (path.endsWith("/validate") && init?.method === "POST") {
+        return validating.promise;
+      }
+      throw new Error(path);
+    });
+    const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+    await coordinator.openDraft("draft-a");
+    const before = coordinator.getState().editorGeneration;
+    const review = coordinator.prepareReview("draft-a", 1);
+    coordinator.leaveEditor();
+    await coordinator.openDraft("draft-a");
+    const after = coordinator.getState().editorGeneration;
+    expect(after).not.toBe(before);
+    validating.resolve({
+      ok: true,
+      data: {
+        tripId: "draft-a",
+        revision: 1,
+        policyVersion: "demo-policy-v1",
+        valid: true,
+        canSubmit: true,
+        fieldIssues: [],
+        reviewRequirements: [],
+      },
+    });
+    const res = await review;
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("CONTEXT_MISMATCH");
+    expect(coordinator.getState().preparedReview).toBeNull();
+  });
+
   it("binds submit to the reviewed revision and refuses a stale review", async () => {
     const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
       if (path.endsWith("/draft-a") && !init?.method) {

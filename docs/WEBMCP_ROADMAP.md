@@ -143,7 +143,7 @@ Minimum acceptance matrix:
 | Observer or wrong tenant | Server prevents unauthorized writes and disclosure |
 | Route change and sign-out | Old tools/results cannot affect the next context |
 | Manual submission | Reviewed snapshot is submitted once; uncertain outcome can be rechecked |
-| Unsupported browser | Manual application works; native test is blocked with a reason |
+| Unsupported browser | Manual application works; native smoke is blocked with a reason when `TW_CHROME_BIN` is unset, or passes via scripted WebMCP when a capable Chromium is provided |
 
 Run three small model-directed tasks twice each when access is available: an exact trip update followed by review; an ambiguous request requiring clarification; and a premium-cabin request whose final explanation must distinguish review from a blocker. Keep all six results, including failures. This is a smoke sample, not a benchmark.
 

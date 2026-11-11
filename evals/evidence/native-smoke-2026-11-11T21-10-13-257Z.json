@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-11-11T21:10:13.256Z",
+  "commit": "a6c7d4a7087ff2b5b233a3be2de43840a847aa8a",
+  "host": "darwin",
+  "node": "v22.22.3",
+  "browser": null,
+  "modelDirected": false,
+  "note": "Scripted native smoke discovers real page tools when TW_CHROME_BIN is set. Model-directed runs are recorded separately.",
+  "checks": null,
+  "results": [
+    {
+      "id": "NATIVE-TOOL-DISCOVERY",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "TW_CHROME_BIN is unset or missing. Native WebMCP requires a WebMCP-capable Chromium binary.",
+      "setup": [
+        "Set TW_CHROME_BIN to a Chromium build that supports document.modelContext / page.webmcp",
+        "Launch with --enable-blink-features=WebMCPTesting",
+        "Ensure dist/client is built (NODE_ENV=production serves the SPA from the test app)",
+        "Ensure TEST_DATABASE_URL points at a disposable database (or TW_ISOLATED_TEST_DB=1)"
+      ],
+      "modelDirected": false
+    },
+    {
+      "id": "NATIVE-DIRTY-READ",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY",
+      "modelDirected": false
+    },
+    {
+      "id": "NATIVE-PREPARE-REVIEW",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY",
+      "modelDirected": false
+    },
+    {
+      "id": "NATIVE-RECHECK-UPDATE",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Depends on NATIVE-TOOL-DISCOVERY",
+      "modelDirected": false
+    },
+    {
+      "id": "MODEL-AGENT-JOURNEYS",
+      "layer": "native",
+      "status": "blocked",
+      "modelDirected": true,
+      "reason": "Model-directed WebMCP journeys were not run in this scripted smoke. Use Cursor or Inspector with discovered tools when available.",
+      "setup": [
+        "Exact update then prepare_trip_review (×2)",
+        "Ambiguous brief requiring clarification (×2)",
+        "Premium-cabin request whose explanation distinguishes review from a blocker (×2)"
+      ]
+    }
+  ],
+  "summary": {
+    "pass": 0,
+    "fail": 0,
+    "blocked": 5,
+    "not_run": 0
+  },
+  "status": "blocked"
+}

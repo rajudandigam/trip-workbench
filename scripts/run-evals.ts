@@ -16,12 +16,26 @@ type CaseResult = {
 };
 
 function runVitestFilter(filter: string): boolean {
+  // stdio ignore avoids pipe-buffer stalls; spawnSync still blocks the event loop
+  // so the in-process test server cannot service keep-alive fetches during the child.
   const result = spawnSync(
     "npx",
     ["vitest", "run", "--config", "vitest.config.ts", "tests/unit", "-t", filter],
-    { encoding: "utf8" },
+    { encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] },
   );
   return result.status === 0;
+}
+
+/** Drop stale keep-alive sockets left unhealthy while spawnSync blocked the server. */
+async function warmTestApp(baseUrl: string) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      await fetch(`${baseUrl}/api/session`);
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
 }
 
 async function main() {
@@ -289,6 +303,7 @@ async function main() {
       if (adapterRegistry[id]) {
         const entry = adapterRegistry[id];
         const ok = runVitestFilter(entry.filter);
+        await warmTestApp(app.baseUrl);
         results.push({
           id,
           layer: "adapter",

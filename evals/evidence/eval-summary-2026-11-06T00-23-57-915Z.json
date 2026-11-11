@@ -1,0 +1,247 @@
+{
+  "supersededEvidenceNote": "Earlier eval-summary claiming 18 passes used inaccurate substring mappings and is not proof.",
+  "total": 34,
+  "pass": 12,
+  "fail": 0,
+  "blocked": 10,
+  "not_run": 12,
+  "results": [
+    {
+      "id": "MODEL-EXACT",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "MODEL-AMBIGUOUS",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "MODEL-PURCHASE",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "DRAFT-PARTIAL",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "destination-only patch saved"
+      ]
+    },
+    {
+      "id": "INPUT-SHAPE",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "purpose:42 rejected"
+      ]
+    },
+    {
+      "id": "INPUT-CROSS-FIELD",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "422 on same-airport patch",
+        "revision unchanged",
+        "destination unchanged"
+      ]
+    },
+    {
+      "id": "POLICY-REVIEW",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "RACE-CAS",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "RACE-UNSAVED",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "RACE-PROPOSAL",
+      "layer": "adapter",
+      "status": "pass",
+      "assertions": [
+        "proposal stale after local edit"
+      ],
+      "evidence": "vitest controlled substitute (not native WebMCP)"
+    },
+    {
+      "id": "RACE-INFLIGHT",
+      "layer": "adapter",
+      "status": "pass",
+      "assertions": [
+        "saved/local field merge during flight"
+      ],
+      "evidence": "vitest controlled substitute (not native WebMCP)"
+    },
+    {
+      "id": "IDEMPOTENT-RETRY",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "exact retry returns same toRevision"
+      ]
+    },
+    {
+      "id": "IDEMPOTENT-CONFLICT",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "ACCESS-BOUNDARY",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "observer 403",
+        "cross-tenant 404"
+      ]
+    },
+    {
+      "id": "CANCEL-PREDISPATCH",
+      "layer": "adapter",
+      "status": "pass",
+      "assertions": [
+        "CANCELLED",
+        "zero PATCH"
+      ],
+      "evidence": "vitest controlled substitute (not native WebMCP)"
+    },
+    {
+      "id": "CANCEL-POSTDISPATCH",
+      "layer": "adapter",
+      "status": "pass",
+      "assertions": [
+        "OUTCOME_UNKNOWN then receipt recovery"
+      ],
+      "evidence": "vitest controlled substitute (not native WebMCP)"
+    },
+    {
+      "id": "LIFECYCLE",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "SUBMIT-REPLAY",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "SUBMIT-STALE",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "OUTCOME-ORACLE",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "LOCAL-CONSENT",
+      "layer": "optional_local_ai",
+      "status": "blocked",
+      "reason": "On-device Summarizer not available in this Node host — unverified"
+    },
+    {
+      "id": "LOCAL-LATE-CREATE",
+      "layer": "optional_local_ai",
+      "status": "blocked",
+      "reason": "On-device Summarizer not available in this Node host — unverified"
+    },
+    {
+      "id": "MANUAL-REFRESH",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "DATE-CALENDAR",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "2026-02-30 rejected"
+      ]
+    },
+    {
+      "id": "ONEWAY-RETURN",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "NOOP-REVISION",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "IDEMPOTENT-OLD-RECEIPT",
+      "layer": "adapter",
+      "status": "pass",
+      "assertions": [
+        "UI revision does not regress"
+      ],
+      "evidence": "vitest controlled substitute (not native WebMCP)"
+    },
+    {
+      "id": "CSRF-BOUNDARY",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "WEBMCP-UNSUPPORTED",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "TOOL-CONTEXT",
+      "layer": "native",
+      "status": "blocked",
+      "reason": "Requires Chrome document.modelContext and/or model-driven browser evaluation — unverified"
+    },
+    {
+      "id": "PROVIDER-INVALID",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "PROVIDER-TRANSIENT",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    },
+    {
+      "id": "AI-REVIEW-APPLY",
+      "layer": "api_db",
+      "status": "pass",
+      "assertions": [
+        "fixture proposal applied to saved state"
+      ]
+    },
+    {
+      "id": "RACE-BRIEF",
+      "layer": "unmapped",
+      "status": "not_run",
+      "reason": "No exact case-ID runner implemented"
+    }
+  ]
+}

@@ -33,6 +33,27 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
         setError("Save your changes before reviewing.");
         return;
       }
+      if (state.pendingOutcome?.kind === "submit" && state.pendingOutcome.draftId === id) {
+        // Keep the reviewed snapshot visible; do not re-validate over an uncertain submit.
+        if (
+          state.pendingOutcome.reviewedRevision != null &&
+          state.pendingOutcome.reviewedPolicyVersion
+        ) {
+          setValidation({
+            tripId: id,
+            revision: state.pendingOutcome.reviewedRevision,
+            policyVersion: state.pendingOutcome.reviewedPolicyVersion,
+            valid: true,
+            canSubmit: true,
+            fieldIssues: [],
+            reviewRequirements: [],
+          });
+        }
+        setError(
+          "We could not confirm whether this request was submitted. Use Recheck submission before trying again.",
+        );
+        return;
+      }
       const res = await props.coordinator.validateSaved();
       if (cancelled || !res) return;
       if (!res.ok) {
@@ -47,6 +68,9 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
   }, [id, props.coordinator]);
 
   const draft = props.coordinator.getState().savedDraft;
+  const pending = props.coordinator.getState().pendingOutcome;
+  const pendingSubmit =
+    pending?.kind === "submit" && pending.draftId === id ? pending : null;
 
   async function submit() {
     if (!validation) return;
@@ -58,6 +82,26 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
       return;
     }
     navigate(`/trips/${id}/confirmation`);
+  }
+
+  async function recheckSubmission() {
+    setBusy(true);
+    setError(null);
+    const res = await props.coordinator.recheckOutcome({
+      draftId: id,
+      commandId: pendingSubmit?.commandId,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error.message);
+      return;
+    }
+    const status = props.coordinator.getState().savedDraft?.status;
+    if (status === "submitted") {
+      navigate(`/trips/${id}/confirmation`);
+      return;
+    }
+    setError("Recheck completed, but the trip is not marked submitted yet.");
   }
 
   return (
@@ -79,8 +123,12 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
           </p>
           <p className="muted">Purpose: {draft.fields.purpose || "(none)"}</p>
           <p className="muted" data-testid="review-revision">
-            Reviewed revision {validation?.revision ?? draft.revision}
+            Reviewed revision{" "}
+            {pendingSubmit?.reviewedRevision ?? validation?.revision ?? draft.revision}
             {validation ? ` · policy ${validation.policyVersion}` : ""}
+            {pendingSubmit?.reviewedPolicyVersion && !validation
+              ? ` · policy ${pendingSubmit.reviewedPolicyVersion}`
+              : ""}
           </p>
         </div>
       ) : null}
@@ -117,6 +165,23 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
           )}
         </div>
       ) : null}
+      {pendingSubmit ? (
+        <div className="notice row" data-testid="pending-submission">
+          <span>
+            Unresolved submission <code>{pendingSubmit.commandId}</code>. Recheck the original
+            receipt before submitting again.
+          </span>
+          <button
+            type="button"
+            className="btn secondary"
+            data-testid="recheck-submission"
+            disabled={busy}
+            onClick={() => void recheckSubmission()}
+          >
+            {busy ? "Rechecking…" : "Recheck submission"}
+          </button>
+        </div>
+      ) : null}
       <div className="row">
         <Link className="btn secondary" to={`/trips/${id}`}>
           Back to edit
@@ -125,7 +190,12 @@ export function TripReviewPage(props: { coordinator: Coordinator; session: Sessi
           type="button"
           className="btn"
           data-testid="submit-request"
-          disabled={!validation?.canSubmit || busy || !props.session.capabilities.canMutateTrips}
+          disabled={
+            !validation?.canSubmit ||
+            busy ||
+            !!pendingSubmit ||
+            !props.session.capabilities.canMutateTrips
+          }
           onClick={() => void submit()}
         >
           {busy ? "Submitting…" : "Submit request"}

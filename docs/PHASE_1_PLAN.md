@@ -17,13 +17,15 @@ Reliable trip workflow, five WebMCP tools, tests, and recorded evidence. Stop af
 | 2 Application UI | complete | Trip list status pills, saved summary, conflict/recheck copy, prepared-review panel, review findings |
 | 3 Five tools and lifecycle | complete | `prepare_trip_review`, `recheck_trip_update`, reactive registration status |
 | 4 Verification and evidence | complete | Unit/API/e2e/evals pass; native smoke blocked with setup docs |
+| 5 Pre-article reliability | complete | Disposable test DB guard; bounded reconcile + submit recheck; prepareReview races; optional real native smoke |
 
 ## Do not
 
 - Run `db:seed` against an existing demo database unless disposable
 - Overwrite `.env`
-- Implement Phase 2/3, articles, push, or deployment automatically
+- Draft DEV/HN articles in this pass; run model ×2 journeys only when capturing the later HackerNoon article
+- Expand event wizard, Navan, or new model features in this pass
 
 ## Completion report
 
-See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md) for tests run, blockers, and article-claim boundaries.
+See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md) for tests run, blockers, and article-claim boundaries. Reliability pass based on `a6c7d4a` (descendant of `e711e20`).

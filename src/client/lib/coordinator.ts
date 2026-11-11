@@ -23,13 +23,19 @@ export type SessionInfo = {
   capabilities: { canMutateTrips: boolean; canMutateEvents?: boolean; aiMode: string };
 };
 
+export type PendingOutcomeKind = "update" | "submit";
+
 export type PendingOutcome = {
   draftId: string;
   commandId: string;
+  kind: PendingOutcomeKind;
   sessionGeneration: number;
   editorGeneration: number;
   /** Original mutation context; recheck must reuse these snapshots. */
   ctx: AsyncOpContext;
+  /** Present when kind is submit — preserves the reviewed snapshot for UI. */
+  reviewedRevision?: number;
+  reviewedPolicyVersion?: string;
 };
 
 export type PreparedReview = ValidationResult & {
@@ -246,44 +252,80 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
     draftId: string,
     commandId: string,
     ctx: AsyncOpContext,
+    kind: PendingOutcomeKind,
+    submitMeta?: { reviewedRevision: number; reviewedPolicyVersion: string },
   ): Promise<Fail | Ok<CommandReceipt>> {
-    const recovery = new AbortController();
     const deadline = Date.now() + 1500;
     let attempts = 0;
-    while (Date.now() < deadline && attempts < 5) {
-      attempts += 1;
-      if (isStaleOp(ctx, currentGuard())) {
-        return fail("CONTEXT_MISMATCH", "Recovery aborted after context change.");
+    try {
+      while (Date.now() < deadline && attempts < 5) {
+        attempts += 1;
+        if (isStaleOp(ctx, currentGuard())) {
+          return fail("CONTEXT_MISMATCH", "Recovery aborted after context change.");
+        }
+        const remaining = Math.max(50, deadline - Date.now());
+        const attemptMs = Math.min(400, remaining);
+        const attempt = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutResult = new Promise<Fail>((resolve) => {
+          timer = setTimeout(() => {
+            attempt.abort();
+            resolve(fail("ABORTED", "Receipt lookup timed out."));
+          }, attemptMs);
+        });
+        let res: Fail | Ok<CommandReceipt>;
+        try {
+          res = await Promise.race([
+            request<CommandReceipt>(`/api/trips/${draftId}/commands/${commandId}`, {
+              signal: attempt.signal,
+            }),
+            timeoutResult,
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+        if (res.ok) {
+          if (kind === "submit") {
+            submitCommandId = null;
+          }
+          return applyConfirmedMutation(ctx, res.data) as Fail | Ok<CommandReceipt>;
+        }
+        if (res.error.code === "UNAUTHENTICATED") {
+          setState({
+            message: res.error.message || "Session expired while confirming the change.",
+          });
+          return fail("UNAUTHENTICATED", res.error.message);
+        }
+        await new Promise((r) => setTimeout(r, 50));
       }
-      const res = await request<CommandReceipt>(`/api/trips/${draftId}/commands/${commandId}`, {
-        signal: recovery.signal,
+      const message =
+        kind === "submit"
+          ? "We could not confirm whether this request was submitted. Use Recheck submission before trying again."
+          : "We could not confirm whether this change saved. Use Recheck outcome before retrying a mutation.";
+      setState({
+        pendingOutcome: {
+          draftId,
+          commandId,
+          kind,
+          sessionGeneration: ctx.sessionGeneration,
+          editorGeneration: ctx.editorGeneration,
+          ctx,
+          reviewedRevision: submitMeta?.reviewedRevision,
+          reviewedPolicyVersion: submitMeta?.reviewedPolicyVersion,
+        },
+        preparedReview: null,
+        message,
       });
-      if (res.ok) {
-        return applyConfirmedMutation(ctx, res.data) as Fail | Ok<CommandReceipt>;
-      }
-      if (res.error.code === "UNAUTHENTICATED") {
-        return fail("UNAUTHENTICATED", res.error.message);
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    setState({
-      pendingOutcome: {
-        draftId,
+      return fail("OUTCOME_UNKNOWN", "Could not confirm mutation outcome.", {
         commandId,
-        sessionGeneration: ctx.sessionGeneration,
-        editorGeneration: ctx.editorGeneration,
-        ctx,
-      },
-      preparedReview: null,
-      message:
-        "We could not confirm whether this change saved. Use Recheck outcome before retrying a mutation.",
-    });
-    endOperation(ctx.operationId);
-    return fail("OUTCOME_UNKNOWN", "Could not confirm mutation outcome.", {
-      commandId,
-      draftId,
-      retry: "recheck_outcome",
-    });
+        draftId,
+        kind,
+        retry: "recheck_outcome",
+      });
+    } finally {
+      // Release this operation on every terminal exit without touching a later op.
+      endOperation(ctx.operationId);
+    }
   }
 
   function clearPreparedReview() {
@@ -636,7 +678,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
 
       if (!res.ok) {
         if (res.error.code === "ABORTED" || res.error.code === "NETWORK_ERROR") {
-          return reconcileCommand(draftId, commandId, ctx);
+          return reconcileCommand(draftId, commandId, ctx, "update");
         }
         endOperation(ctx.operationId);
         setState({ message: res.error.message });
@@ -702,7 +744,7 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
 
       if (!res.ok) {
         if (res.error.code === "ABORTED" || res.error.code === "NETWORK_ERROR") {
-          return reconcileCommand(draftId, commandId, ctx);
+          return reconcileCommand(draftId, commandId, ctx, "update");
         }
         endOperation(ctx.operationId);
         setState({ message: res.error.message });
@@ -815,7 +857,10 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
         editorGeneration: pending.editorGeneration,
       };
       setState({ saving: true });
-      return reconcileCommand(pending.draftId, pending.commandId, ctx);
+      return reconcileCommand(pending.draftId, pending.commandId, ctx, pending.kind, {
+        reviewedRevision: pending.reviewedRevision ?? pending.ctx.expectedRevision,
+        reviewedPolicyVersion: pending.reviewedPolicyVersion ?? "",
+      });
     },
     async prepareReview(draftId: string, expectedRevision: number) {
       if (state.signingOut) {
@@ -847,12 +892,33 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       if (state.savedDraft.status !== "draft") {
         return fail("INVALID_STATUS", "Only draft trips can prepare a review.");
       }
+      const sessionGen = sessionGeneration;
+      const editorGen = editorGeneration;
       const res = await request<ValidationResult>(`/api/trips/${draftId}/validate`, {
         method: "POST",
         body: JSON.stringify({ expectedRevision }),
       });
       if (!res.ok) {
         return res;
+      }
+      if (sessionGen !== sessionGeneration || editorGen !== editorGeneration) {
+        return fail(
+          "CONTEXT_MISMATCH",
+          "Editor context changed while preparing review; result discarded.",
+        );
+      }
+      if (state.saving || activeOperationId != null) {
+        return fail(
+          "COMMAND_IN_PROGRESS",
+          "A write started while preparing review; result discarded.",
+        );
+      }
+      // Re-read after await; cast breaks stale control-flow narrowing from pre-validate checks.
+      const pendingAfterValidate = state.pendingOutcome as PendingOutcome | null;
+      if (pendingAfterValidate) {
+        return fail("OUTCOME_UNKNOWN", "An unresolved mutation appeared while preparing review.", {
+          commandId: pendingAfterValidate.commandId,
+        });
       }
       if (!state.savedDraft || state.savedDraft.id !== draftId) {
         return fail("CONTEXT_MISMATCH", "Draft is no longer open.");
@@ -935,7 +1001,10 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       }
       if (!res.ok) {
         if (res.error.code === "ABORTED" || res.error.code === "NETWORK_ERROR") {
-          return reconcileCommand(draftId, commandId, ctx);
+          return reconcileCommand(draftId, commandId, ctx, "submit", {
+            reviewedRevision,
+            reviewedPolicyVersion,
+          });
         }
         endOperation(ctx.operationId);
         setState({ saving: false, message: res.error.message });
