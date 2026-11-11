@@ -1,6 +1,6 @@
 # Phase 1 evidence
 
-Baseline before Phase 1: `9485a47`. Phase 1 complete commit: `e711e20`. This reliability pass starts from descendant `a6c7d4a` (Phase 2 already on `main`) and adds disposable-DB isolation, bounded reconcile / submission recheck, prepareReview race refusal, and an optional real native smoke path.
+Baseline before Phase 1: `9485a47`. Phase 1 complete commit: `e711e20`. Reliability pass commit: `0691767` (from descendant `a6c7d4a`; Phase 2 already on `main`). Adds disposable-DB isolation, bounded reconcile / submission recheck, prepareReview race refusal, and an optional real native smoke path.
 
 Evidence date: 2026-11-11. Node `v22.22.3`. `puppeteer-core` `25.16.0` (browser path optional). AI mode for this work: `disabled` / fixture only.
 

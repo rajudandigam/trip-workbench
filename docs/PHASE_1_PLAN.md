@@ -28,4 +28,4 @@ Reliable trip workflow, five WebMCP tools, tests, and recorded evidence. Stop af
 
 ## Completion report
 
-See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md) for tests run, blockers, and article-claim boundaries. Reliability pass based on `a6c7d4a` (descendant of `e711e20`).
+See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md) for tests run, blockers, and article-claim boundaries. Reliability pass commit: `0691767` (from `a6c7d4a`, descendant of `e711e20`).
