@@ -64,9 +64,19 @@ Server-side only:
 
 Never put provider keys in `VITE_*` variables.
 
+## Scripted native smoke (optional)
+
+```bash
+export TW_CHROME_BIN=/path/to/webmcp-chromium
+npm run build
+npm run test:native-smoke
+```
+
+Without `TW_CHROME_BIN`, the script records **blocked** honestly. Use a disposable `TEST_DATABASE_URL` (see `.env.example`). Cite map for article drafts: [ARTICLE_SOURCE_MAP.md](ARTICLE_SOURCE_MAP.md).
+
 ## Model-directed journeys
 
-Prefer the existing Cursor model connection. Record three tasks twice when available:
+Prefer the existing Cursor model connection. Record three tasks twice when available (needed for the later model-decisions article, not the five current drafts):
 
 1. Exact update + `prepare_trip_review`
 2. Ambiguous request requiring clarification

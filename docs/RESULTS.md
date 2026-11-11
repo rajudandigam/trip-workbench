@@ -1,20 +1,20 @@
 # Results
 
-Phase 2 evidence date: 2026-11-06 (events workflow). Phase 1 started from `9485a47` / landed in `e711e20`. Earlier repair checks and the 2026-10-20 three-tool Chrome session remain historical context below. See [PHASE_2_EVIDENCE.md](PHASE_2_EVIDENCE.md).
+Current tip for article cites: reliability `0691767` / evidence docs `adc1143`. Phase 2 events landed in `a6c7d4a`. Phase 1 core landed in `e711e20`. See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md), [PHASE_2_EVIDENCE.md](PHASE_2_EVIDENCE.md), and [ARTICLE_SOURCE_MAP.md](ARTICLE_SOURCE_MAP.md).
 
 | Check | Status | Evidence |
 |-------|--------|----------|
 | typecheck | pass | `npm run typecheck` |
 | lint | pass | `npm run lint` |
 | build | pass | `npm run build` (also via e2e harness) |
-| test:unit | pass | 38 tests (Phase 1 coordinator + event rules) |
-| test:api | pass | trips (3) + events (2) on isolated local test DB |
+| test:unit | pass | **49** tests (coordinator recovery/races, DB guard, event rules) |
+| test:api | pass | trips (3) + events (2) + disposable DB sentinel (1) on isolated test DB |
 | test:e2e | pass | Cypress trip + event manual journeys |
-| test:evals | pass (0 fail) | 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-11-06T01-34-17-272Z.json` |
-| test:native-smoke | blocked | Node host lacks WebMCP browser attachment — `evals/evidence/native-smoke-2026-11-06T01-34-07-039Z.json` |
-| native WebMCP | partial | 2026-10-20 Chrome DevTools session for the original three tools. Five-tool native discovery not re-run in this Phase 1 session. |
-| live Gemini | unverified / blocked | not required for Phase 1 core |
-| model-driven WebMCP | blocked | no model-chosen trajectory recorded in Phase 1 |
+| test:evals | pass (0 fail) | 12 pass / 10 blocked / 12 not_run — `evals/evidence/eval-summary-2026-11-11T21-13-13-109Z.json` |
+| test:native-smoke | blocked (honest) | `TW_CHROME_BIN` unset — `evals/evidence/native-smoke-2026-11-11T21-10-13-257Z.json`; real path exists when WebMCP Chromium is provided |
+| native WebMCP | partial | 2026-10-20 three-tool Chrome session (historical). Independent Chromium 153 audit exercised five traveler + three observer tools. Repo smoke remains blocked here without `TW_CHROME_BIN`. |
+| live Gemini | unverified / blocked | not required for Phase 1/2 core |
+| model-driven WebMCP | blocked | no model-chosen trajectory recorded yet (needed only for the later model-decisions article) |
 
 Full Phase 1 gate write-up: [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md).
 
@@ -53,7 +53,10 @@ Named regressions cover:
 - superseded same-draft openDraft ignored
 - historical receipt UI non-regression (IDEMPOTENT-OLD-RECEIPT)
 - pre-dispatch cancel → `CANCELLED`, zero PATCH
-- post-dispatch network loss → `OUTCOME_UNKNOWN` + receipt recheck
+- post-dispatch network loss → `OUTCOME_UNKNOWN` + receipt recheck (bounded GET; 401 releases the editor)
+- submit uncertainty → review-screen **Recheck submission** without a second POST
+- prepareReview refuses stale panels after overlapping write or leave/reopen
+- disposable `TEST_DATABASE_URL` required before migrate/seed
 - logout keeps CSRF until DELETE succeeds; failed logout does not clear UI session
 - fixture AI review/apply saved-state transition (API layer, not native WebMCP)
 

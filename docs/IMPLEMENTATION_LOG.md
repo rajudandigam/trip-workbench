@@ -7,8 +7,10 @@
 | 0 Foundation | complete | Scaffold, Compose/local Postgres, health, docs |
 | 1 Server | complete | Sessions, migrations, seeds, revision/idempotency commands |
 | 2 Manual UI | complete | Login → edit → save → review → submit → refresh (Cypress green) |
-| 3 WebMCP | complete; five tools in Phase 1 | Original three tools plus `prepare_trip_review` and `recheck_trip_update`. AbortSignal cleanup + reactive registration status. Native smoke blocked in Node; see [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md). |
+| 3 WebMCP | complete; five tools in Phase 1 | Original three tools plus `prepare_trip_review` and `recheck_trip_update`. AbortSignal cleanup + reactive registration status. Native smoke blocked without `TW_CHROME_BIN`; see [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md). |
 | Phase 1 (2026-11-06) | complete (code + deterministic evidence) | Refresh merge/ordering, pendingOutcome snapshots, submit revision binding, UI clarity, five tools, evidence docs |
+| Phase 1 reliability (2026-11-11) | complete `0691767` | Disposable test DB guard; bounded reconcile + submit recheck; prepareReview race refusal; optional native smoke path; [ARTICLE_SOURCE_MAP.md](ARTICLE_SOURCE_MAP.md) |
+| Phase 2 events | complete `a6c7d4a` | Synthetic event wizard + page-scoped event WebMCP tools |
 | 4 Gemini | complete (fixture) | Fixture proposals + stale bindings; live blocked without key |
 | 5 Evidence | complete | Exact case-ID eval registry + AgentInspect hooks + DEMO_RUNBOOK |
 | 6 Summarizer (optional) | complete (API absent) | On-device adapter with honest unavailable path; no auto cloud fallback |

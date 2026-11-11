@@ -12,10 +12,10 @@ Synthetic demo data only. Sessions, PostgreSQL, the WebMCP adapter, and Gemini p
 - WebMCP trip tools: `get_trip_draft`, `update_trip_draft`, `validate_trip_draft`, `prepare_trip_review`, and `recheck_trip_update`.
 - WebMCP event tools (open event editor only): `get_event_draft`, `update_event_draft`, `validate_event_draft`, `prepare_event_review`. The authenticated Events list remains the entry point.
 - Synthetic events: title, dates, time zone, synthetic/manual location, review, and recorded snapshot only.
-- State handling: dirty-before-refresh edits are preserved; uncertain updates keep original command context; submission is bound to the reviewed revision.
+- State handling: dirty-before-refresh edits are preserved; uncertain updates/submissions keep original command context and can be rechecked without a second write; submission is bound to the reviewed revision; prepared reviews refuse stale results after a write or reentry.
 - Gemini proposals in `fixture` mode. Live Gemini stays off unless `GEMINI_API_KEY` is set. A WebMCP demonstration does not need Gemini; the browser agent supplies the model and the tools call this app.
 
-Automated native/model evals remain blocked in Node/Electron. Direct Chrome DevTools sessions are recorded separately. See [docs/PHASE_1_EVIDENCE.md](docs/PHASE_1_EVIDENCE.md) and [docs/RESULTS.md](docs/RESULTS.md).
+Automated native/model evals remain blocked in Node/Electron unless `TW_CHROME_BIN` points at a WebMCP-capable Chromium. Direct Chrome DevTools sessions are recorded separately. Article cite map: [docs/ARTICLE_SOURCE_MAP.md](docs/ARTICLE_SOURCE_MAP.md). See also [docs/PHASE_1_EVIDENCE.md](docs/PHASE_1_EVIDENCE.md) and [docs/RESULTS.md](docs/RESULTS.md).
 
 ## Quick start
 

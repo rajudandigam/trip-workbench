@@ -30,7 +30,8 @@ Recorded during Prompt 0–5 local implementation on 2026-10-14.
 
 | Capability | Status on this host |
 |------------|---------------------|
-| Native WebMCP (`document.modelContext`) | Five tools implemented. Electron/Node eval harness and `test:native-smoke` remain **blocked** without a WebMCP browser attachment. 2026-10-20 Chrome DevTools observed the original three tools. See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md). |
+| Native WebMCP (`document.modelContext`) | Five trip tools + page-scoped event tools implemented. `test:native-smoke` is **blocked** without `TW_CHROME_BIN`; optional Puppeteer path records a real run when a WebMCP Chromium is provided. 2026-10-20 Chrome DevTools observed the original three tools. See [PHASE_1_EVIDENCE.md](PHASE_1_EVIDENCE.md). |
+| Test database | `TEST_DATABASE_URL` required for API tests/evals; must not alias `DATABASE_URL` unless `TW_ISOLATED_TEST_DB=1`. |
 | Gemini live | **blocked** without `GEMINI_API_KEY` |
 | Chrome Summarizer | Adapter implemented; global absent in Node/Electron — reported unavailable honestly |
 
