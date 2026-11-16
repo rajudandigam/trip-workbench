@@ -16,6 +16,9 @@ export type AppConfig = {
   aiMode: AiMode;
   geminiApiKey: string | null;
   geminiModel: string;
+  /** Opt-in local AgentInspect diagnostics (TW_AGENT_INSPECT=1). Default false. */
+  agentInspectEnabled: boolean;
+  agentInspectDir: string | null;
 };
 
 function required(name: string, fallback?: string): string {
@@ -46,6 +49,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     aiMode: parseAiMode(env.AI_MODE),
     geminiApiKey: env.GEMINI_API_KEY || null,
     geminiModel: env.GEMINI_MODEL || "gemini-2.5-flash",
+    agentInspectEnabled: (() => {
+      const raw = (env.TW_AGENT_INSPECT || "").trim().toLowerCase();
+      return raw === "1" || raw === "true" || raw === "yes";
+    })(),
+    agentInspectDir: env.TW_AGENT_INSPECT_DIR?.trim() || null,
   };
 }
 

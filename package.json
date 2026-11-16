@@ -21,6 +21,8 @@
     "test:e2e": "tsx scripts/test-e2e.ts",
     "test:evals": "tsx scripts/run-evals.ts",
     "test:native-smoke": "tsx scripts/native-webmcp-smoke.ts",
+    "test:webmcp-evidence": "TW_WEBMCP_EVIDENCE_STRICT=1 tsx scripts/native-webmcp-smoke.ts",
+    "test:lost-response-evidence": "tsx scripts/webmcp/lost-response-evidence.ts",
     "cy:open": "cypress open --e2e --config-file cypress.config.ts",
     "cy:run": "cypress run --e2e --config-file cypress.config.ts",
     "lint": "eslint . --max-warnings 0",
@@ -28,6 +30,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
+    "agent-inspect": "6.31.36",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",

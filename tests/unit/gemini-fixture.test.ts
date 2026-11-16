@@ -19,6 +19,8 @@ function config(mode: AppConfig["aiMode"]): AppConfig {
     aiMode: mode,
     geminiApiKey: null,
     geminiModel: "gemini-2.5-flash",
+    agentInspectEnabled: false,
+    agentInspectDir: null,
   };
 }
 

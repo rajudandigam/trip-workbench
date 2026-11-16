@@ -14,10 +14,19 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { strict as assert } from "node:assert";
+import {
+  informationalExitCode,
+  overallFromSummary,
+  strictEvidenceExitCode,
+  summarizeResults,
+} from "./webmcp/evidence-status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(__dirname, "../evals/evidence");
 const blinkFlag = "--enable-blink-features=WebMCPTesting";
+const strictMode =
+  process.env.TW_WEBMCP_EVIDENCE_STRICT === "1" ||
+  process.env.TW_WEBMCP_EVIDENCE_STRICT === "true";
 
 type SmokeStatus = "pass" | "fail" | "blocked" | "not_run";
 
@@ -29,6 +38,8 @@ type SmokeResult = {
   assertions?: string[];
   setup?: string[];
   modelDirected?: boolean;
+  /** Default true for native scripted cases; model cases are optional. */
+  mandatory?: boolean;
 };
 
 function writeEvidence(payload: Record<string, unknown>) {
@@ -75,6 +86,7 @@ function blockedResults(reason: string, setup: string[]): SmokeResult[] {
       layer: "native",
       status: "blocked",
       modelDirected: true,
+      mandatory: false,
       reason:
         "Model-directed WebMCP journeys were not run in this scripted smoke. Use Cursor or Inspector with discovered tools when available.",
       setup: [
@@ -270,9 +282,22 @@ async function runBrowserSmoke(): Promise<{
       return envelope;
     };
 
-    const got = await invoke("get_trip_draft", { draftId });
+    // Dirty-read: unsaved local edits before and during get_trip_draft must
+    // survive while the saved database row stays unchanged.
+    const beforeReadEdit = "local-edit-before-get";
+    await page.locator("#purpose").fill(beforeReadEdit);
+    await until(async () => (await dom()).localPurpose === beforeReadEdit, "pre-read local edit");
+    assert.equal((await tripRow()).purpose, "");
+
+    const getPromise = invoke("get_trip_draft", { draftId });
+    const duringReadEdit = "local-edit-during-get";
+    await page.locator("#purpose").fill(duringReadEdit);
+    const got = await getPromise;
     assert.equal(got.ok, true);
     assert.equal((got.data as { revision: number }).revision, 1);
+    await until(async () => (await dom()).localPurpose === duringReadEdit, "during-read local edit");
+    assert.equal((await tripRow()).purpose, "");
+    assert.equal((await tripRow()).revision, 1);
 
     const normal = await invoke("update_trip_draft", {
       draftId,
@@ -422,7 +447,13 @@ async function runBrowserSmoke(): Promise<{
         layer: "native",
         status: "pass",
         modelDirected: false,
-        assertions: ["get_trip_draft returned revision 1 before updates"],
+        mandatory: true,
+        assertions: [
+          "unsaved edit before get_trip_draft",
+          "unsaved edit during get_trip_draft",
+          "saved DB purpose unchanged",
+          "get_trip_draft returned revision 1",
+        ],
       },
       {
         id: "NATIVE-PREPARE-REVIEW",
@@ -513,14 +544,14 @@ async function main() {
     };
   }
 
-  const summary = {
-    pass: run.results.filter((r) => r.status === "pass").length,
-    fail: run.results.filter((r) => r.status === "fail").length,
-    blocked: run.results.filter((r) => r.status === "blocked").length,
-    not_run: run.results.filter((r) => r.status === "not_run").length,
-  };
-  const overall =
-    summary.fail > 0 ? "fail" : summary.pass > 0 ? "pass" : summary.blocked > 0 ? "blocked" : "not_run";
+  const annotated = run.results.map((r) => ({
+    ...r,
+    mandatory: r.modelDirected ? false : r.mandatory !== false,
+  }));
+  const summary = summarizeResults(annotated);
+  const overall = overallFromSummary(summary);
+  const strict = strictEvidenceExitCode(annotated);
+  const exitCode = strictMode ? strict.code : informationalExitCode(overall);
 
   const file = writeEvidence({
     generatedAt: new Date().toISOString(),
@@ -529,18 +560,25 @@ async function main() {
     node: process.version,
     browser: run.browser ?? null,
     modelDirected: false,
-    note: "Scripted native smoke discovers real page tools when TW_CHROME_BIN is set. Model-directed runs are recorded separately.",
+    strictMode,
+    note: strictMode
+      ? "Strict WebMCP evidence gate: exit 0 only when every mandatory native case ran and passed; exit 2 if blocked."
+      : "Informational native smoke: blocked/not_run without failures still exits 0. Use npm run test:webmcp-evidence for the CI gate.",
     checks: run.checks ?? null,
-    results: run.results,
+    results: annotated,
     summary,
     status: overall,
+    strict,
   });
 
   console.log(
     JSON.stringify(
       {
-        ok: overall !== "fail",
+        ok: exitCode === 0,
         status: overall,
+        strictMode,
+        exitCode,
+        strict,
         evidence: file,
         summary,
       },
@@ -548,7 +586,7 @@ async function main() {
       2,
     ),
   );
-  if (overall === "fail") process.exitCode = 1;
+  process.exitCode = exitCode;
 }
 
 main().catch((error) => {

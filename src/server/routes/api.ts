@@ -226,12 +226,62 @@ export function createApiRouter(deps: {
   router.patch("/trips/:id", requireAuth, async (req: AuthedRequest, res) => {
     try {
       const body = HttpTripPatchBodySchema.parse(req.body);
-      const receipt = await trips.patch(
-        req.actor!,
-        String(req.params.id),
-        body.expectedRevision,
-        body.commandId,
-        body.patch,
+      const tripId = String(req.params.id);
+      const receipt = await inspectRun(
+        "trip-update",
+        async () => {
+          const applied = await inspectStep(
+            "trip.patch",
+            async () =>
+              trips.patch(
+                req.actor!,
+                tripId,
+                body.expectedRevision,
+                body.commandId,
+                body.patch,
+              ),
+            {
+              type: "tool",
+              metadata: {
+                domain: "trip",
+                operation: "update",
+                expectedRevision: body.expectedRevision,
+                resourceKind: "trip_draft",
+                resourceAlias: tripId,
+                commandAlias: body.commandId,
+              },
+            },
+          );
+          await inspectStep(
+            "trip.patch.receipt",
+            async () => undefined,
+            {
+              metadata: {
+                domain: "trip",
+                operation: "update",
+                commandAction: applied.action,
+                commandOutcome: applied.outcome,
+                fromRevision: applied.fromRevision,
+                toRevision: applied.toRevision,
+                resourceKind: "trip_draft",
+                resourceAlias: applied.tripId,
+                commandAlias: applied.commandId,
+                captureStatus: "complete",
+              },
+            },
+          );
+          return applied;
+        },
+        {
+          metadata: {
+            domain: "trip",
+            operation: "update",
+            resourceKind: "trip_draft",
+            resourceAlias: tripId,
+          },
+          enabled: config.agentInspectEnabled,
+          traceDir: config.agentInspectDir ?? undefined,
+        },
       );
       res.json({ ok: true, data: receipt });
     } catch (error) {
@@ -277,10 +327,56 @@ export function createApiRouter(deps: {
 
   router.get("/trips/:id/commands/:commandId", requireAuth, async (req: AuthedRequest, res) => {
     try {
-      const receipt = await trips.getCommand(
-        req.actor!,
-        String(req.params.id),
-        String(req.params.commandId),
+      const tripId = String(req.params.id);
+      const commandId = String(req.params.commandId);
+      const receipt = await inspectRun(
+        "trip-command-receipt",
+        async () => {
+          const read = await inspectStep(
+            "trip.command.read",
+            async () => trips.getCommand(req.actor!, tripId, commandId),
+            {
+              type: "tool",
+              metadata: {
+                domain: "trip",
+                operation: "command_receipt_read",
+                resourceKind: "trip_draft",
+                resourceAlias: tripId,
+                commandAlias: commandId,
+              },
+            },
+          );
+          await inspectStep(
+            "trip.command.receipt",
+            async () => undefined,
+            {
+              metadata: {
+                domain: "trip",
+                operation: "command_receipt_read",
+                commandAction: read.action,
+                commandOutcome: read.outcome,
+                fromRevision: read.fromRevision,
+                toRevision: read.toRevision,
+                resourceKind: "trip_draft",
+                resourceAlias: read.tripId,
+                commandAlias: read.commandId,
+                captureStatus: "complete",
+              },
+            },
+          );
+          return read;
+        },
+        {
+          metadata: {
+            domain: "trip",
+            operation: "command_receipt_read",
+            resourceKind: "trip_draft",
+            resourceAlias: tripId,
+            commandAlias: commandId,
+          },
+          enabled: config.agentInspectEnabled,
+          traceDir: config.agentInspectDir ?? undefined,
+        },
       );
       res.json({ ok: true, data: receipt });
     } catch (error) {
@@ -321,23 +417,57 @@ export function createApiRouter(deps: {
       const result = await inspectRun(
         "gemini-proposal",
         async () => {
-          const proposal = await createProposal(config, {
-            brief: body.brief,
-            fields: trip.fields,
-            expectedRevision: body.expectedRevision,
-            clientEditVersion: body.clientEditVersion,
-            briefVersion: body.briefVersion,
-            referenceDate: calendarDateInTimezone(config.clock.now(), config.timeZone),
-            timeZone: config.timeZone,
-          });
-          inspectStep("gemini-proposal-steps", "proposal.created", {
-            tripId: trip.id,
-            mode: proposal.mode,
-            clarificationCount: proposal.proposal.clarifications.length,
-          });
+          const proposal = await inspectStep(
+            "proposal.create",
+            async () =>
+              createProposal(config, {
+                brief: body.brief,
+                fields: trip.fields,
+                expectedRevision: body.expectedRevision,
+                clientEditVersion: body.clientEditVersion,
+                briefVersion: body.briefVersion,
+                referenceDate: calendarDateInTimezone(config.clock.now(), config.timeZone),
+                timeZone: config.timeZone,
+              }),
+            {
+              type: "llm",
+              metadata: {
+                domain: "proposal",
+                operation: "create",
+                expectedRevision: body.expectedRevision,
+                resourceKind: "trip_draft",
+                resourceAlias: trip.id,
+              },
+            },
+          );
+          await inspectStep(
+            "proposal.recorded",
+            async () => undefined,
+            {
+              metadata: {
+                domain: "proposal",
+                operation: "create",
+                mode: proposal.mode,
+                clarificationCount: proposal.proposal.clarifications.length,
+                resourceKind: "trip_draft",
+                resourceAlias: trip.id,
+                captureStatus: "complete",
+              },
+            },
+          );
           return proposal;
         },
-        { silent: true },
+        {
+          silent: true,
+          enabled: config.agentInspectEnabled,
+          traceDir: config.agentInspectDir ?? undefined,
+          metadata: {
+            domain: "proposal",
+            operation: "create",
+            resourceKind: "trip_draft",
+            resourceAlias: trip.id,
+          },
+        },
       );
       res.json({ ok: true, data: result });
     } catch (error) {
