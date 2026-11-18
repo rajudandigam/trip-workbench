@@ -28,21 +28,30 @@ export type InspectAllowlistMeta = {
   clarificationCount?: number;
 };
 
-const SENSITIVE_META_KEYS = new Set([
-  "brief",
-  "proposal",
-  "prompt",
-  "cookie",
-  "csrf",
-  "authorization",
-  "password",
-  "email",
-  "purpose",
-  "notes",
-  "body",
-  "stack",
-  "message",
+/**
+ * Explicit allowed metadata keys. Unrecognized keys (including business canaries
+ * like businessMemo) are dropped — this is an allowlist, not a denylist.
+ * Correlation aliases are opaque UUIDs only; never free-form PII.
+ */
+const ALLOWED_META_KEYS = new Set<string>([
+  "domain",
+  "operation",
+  "errorCode",
+  "commandAction",
+  "commandOutcome",
+  "fromRevision",
+  "toRevision",
+  "expectedRevision",
+  "replay",
+  "resourceKind",
+  "resourceAlias",
+  "commandAlias",
+  "captureStatus",
+  "mode",
+  "clarificationCount",
 ]);
+
+const BUSINESS_MEMO_CANARY = "RESEARCH_PRIVATE_MEMO_CANARY";
 
 let shared: {
   inspector: Inspector;
@@ -109,7 +118,7 @@ export function allowlistMetadata(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (SENSITIVE_META_KEYS.has(key.toLowerCase())) continue;
+    if (!ALLOWED_META_KEYS.has(key)) continue;
     if (value === undefined) continue;
     if (typeof value === "string") {
       out[key] = value.slice(0, 128);
@@ -121,6 +130,11 @@ export function allowlistMetadata(
     }
   }
   return out;
+}
+
+/** Test/research canary string that must never appear in persisted JSONL. */
+export function businessMemoCanary(): string {
+  return BUSINESS_MEMO_CANARY;
 }
 
 /**

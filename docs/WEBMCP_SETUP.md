@@ -75,6 +75,15 @@ npm run test:webmcp-evidence       # strict CI gate: exit 2 if mandatory cases b
 
 Without `TW_CHROME_BIN`, the informational smoke records **blocked** and still exits 0. The strict `test:webmcp-evidence` command returns nonzero when mandatory native cases did not execute. Use a disposable `TEST_DATABASE_URL` (see `.env.example`). Cite map for article drafts: [ARTICLE_SOURCE_MAP.md](ARTICLE_SOURCE_MAP.md).
 
+Native scenario isolation (when Chrome + disposable DB are available):
+
+1. **Dirty-read** — local edits before/during `get_trip_draft` use a CDP Fetch barrier on the real draft GET so the during-read edit is deterministic.
+2. **Dirty-refusal** — while still dirty, `update_trip_draft` must return `USER_EDIT_IN_PROGRESS` with **zero** PATCH requests.
+3. **Discard** — click `[data-testid=discard-changes]` before any successful agent update so dirty-read does not poison later mutations.
+4. Native call status is recorded separately from the app envelope and DB effect.
+
+If Chrome is unavailable, leave native cases **blocked** (strict exit 2); do not claim a pass.
+
 ## Model-directed journeys
 
 Prefer the existing Cursor model connection. Record three tasks twice when available (needed for the later model-decisions article, not the five current drafts):

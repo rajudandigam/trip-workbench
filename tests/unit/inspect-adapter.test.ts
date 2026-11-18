@@ -6,6 +6,7 @@ import { openTraceFile } from "agent-inspect/readers";
 import { createToolUsageRule, runTraceChecks } from "agent-inspect/checks";
 import {
   allowlistMetadata,
+  businessMemoCanary,
   getInspectAdapter,
   inspectRun,
   inspectStep,
@@ -30,7 +31,7 @@ describe("inspect adapter", () => {
     }
   });
 
-  it("allowlists metadata and drops sensitive keys", () => {
+  it("allowlists only explicit keys and drops unrecognized canaries", () => {
     expect(
       allowlistMetadata({
         domain: "trip",
@@ -38,10 +39,12 @@ describe("inspect adapter", () => {
         brief: "secret brief",
         purpose: "honeymoon",
         email: "alex@example.com",
+        businessMemo: businessMemoCanary(),
+        inventedKey: "should-drop",
         commandOutcome: "applied",
         fromRevision: 1,
         toRevision: 2,
-      }),
+      } as Record<string, unknown>),
     ).toEqual({
       domain: "trip",
       operation: "update",
@@ -49,6 +52,45 @@ describe("inspect adapter", () => {
       fromRevision: 1,
       toRevision: 2,
     });
+  });
+
+  it("persists no businessMemo canary in flushed JSONL", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tw-inspect-canary-"));
+    dirs.push(dir);
+    getInspectAdapter({ enabled: true, traceDir: dir });
+    const canary = businessMemoCanary();
+
+    const poisoned = {
+      domain: "trip" as const,
+      operation: "update",
+      resourceAlias: "trip-canary",
+      businessMemo: canary,
+    };
+
+    await inspectRun(
+      "trip-update",
+      async () => {
+        await inspectStep("trip.patch", async () => ({ ok: true }), {
+          type: "tool",
+          // Intentionally inject an unrecognized key; allowlist must drop it.
+          metadata: poisoned as typeof poisoned & { domain: "trip" },
+        });
+        return "ok";
+      },
+      {
+        enabled: true,
+        traceDir: dir,
+        metadata: poisoned as typeof poisoned & { domain: "trip" },
+      },
+    );
+
+    await shutdownInspectAdapter();
+    const files = await listTraceFiles(dir);
+    expect(files.length).toBe(1);
+    const body = fs.readFileSync(files[0]!, "utf8");
+    expect(body).not.toContain(canary);
+    expect(body).not.toContain("businessMemo");
+    expect(body).toContain("trip-canary");
   });
 
   it("disabled mode produces no trace files and preserves return/throw", async () => {

@@ -20,6 +20,14 @@ import {
   strictEvidenceExitCode,
   summarizeResults,
 } from "./webmcp/evidence-status.js";
+import {
+  isDirtyRefusal,
+  isTripDraftGet,
+  isTripPatch,
+  observeNativeInvoke,
+  type AppEnvelope,
+  type NativeInvokeObservation,
+} from "./webmcp/native-isolation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(__dirname, "../evals/evidence");
@@ -62,6 +70,13 @@ function blockedResults(reason: string, setup: string[]): SmokeResult[] {
     },
     {
       id: "NATIVE-DIRTY-READ",
+      layer: "native",
+      status: "blocked",
+      reason: "Depends on NATIVE-TOOL-DISCOVERY",
+      modelDirected: false,
+    },
+    {
+      id: "NATIVE-DIRTY-REFUSAL",
       layer: "native",
       status: "blocked",
       reason: "Depends on NATIVE-TOOL-DISCOVERY",
@@ -250,11 +265,8 @@ async function runBrowserSmoke(): Promise<{
         };
       });
 
-    const invoke = async (name: string, args: Record<string, unknown>) => {
-      const tool = mcpPage.webmcp!.tools().find((t) => t.name === name);
-      assert.ok(tool, `missing tool ${name}`);
-      const call = await tool.execute(args, { signal: AbortSignal.timeout(8000) });
-      let val: unknown = call.output;
+    const parseEnvelope = (output: unknown): AppEnvelope | null => {
+      let val: unknown = output;
       for (let i = 0; i < 5; i++) {
         if (typeof val === "string") {
           try {
@@ -275,31 +287,125 @@ async function runBrowserSmoke(): Promise<{
         }
         break;
       }
-      const envelope = val as { ok?: boolean; data?: unknown; error?: { code?: string } };
-      if (typeof envelope?.ok !== "boolean") {
-        throw new Error(`${name} has no app envelope: ${JSON.stringify({ output: call.output, status: call.status }).slice(0, 300)}`);
-      }
-      return envelope;
+      const envelope = val as AppEnvelope;
+      return typeof envelope?.ok === "boolean" ? envelope : null;
     };
 
-    // Dirty-read: unsaved local edits before and during get_trip_draft must
-    // survive while the saved database row stays unchanged.
+    const invoke = async (
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<{ envelope: AppEnvelope; observation: NativeInvokeObservation }> => {
+      const tool = mcpPage.webmcp!.tools().find((t) => t.name === name);
+      assert.ok(tool, `missing tool ${name}`);
+      const call = await tool.execute(args, { signal: AbortSignal.timeout(8000) });
+      const envelope = parseEnvelope(call.output);
+      const observation = observeNativeInvoke(name, call, envelope);
+      if (!envelope) {
+        throw new Error(
+          `${name} has no app envelope: ${JSON.stringify({
+            output: call.output,
+            status: call.status,
+            nativeStatus: observation.nativeStatus,
+          }).slice(0, 300)}`,
+        );
+      }
+      return { envelope, observation };
+    };
+
+    // Dirty-read with a deterministic CDP barrier on the real draft GET:
+    // pause the request, apply the during-read edit, then continue.
     const beforeReadEdit = "local-edit-before-get";
     await page.locator("#purpose").fill(beforeReadEdit);
     await until(async () => (await dom()).localPurpose === beforeReadEdit, "pre-read local edit");
     assert.equal((await tripRow()).purpose, "");
 
-    const getPromise = invoke("get_trip_draft", { draftId });
     const duringReadEdit = "local-edit-during-get";
-    await page.locator("#purpose").fill(duringReadEdit);
-    const got = await getPromise;
-    assert.equal(got.ok, true);
-    assert.equal((got.data as { revision: number }).revision, 1);
-    await until(async () => (await dom()).localPurpose === duringReadEdit, "during-read local edit");
-    assert.equal((await tripRow()).purpose, "");
+    let draftGetPaused = 0;
+    const readBarrier = await page.createCDPSession();
+    await readBarrier.send("Fetch.enable", {
+      patterns: [{ urlPattern: "*/api/trips/*", requestStage: "Request" }],
+    });
+    const barrierHandler = async (ev: {
+      requestId: string;
+      request: { method: string; url: string };
+    }) => {
+      try {
+        if (isTripDraftGet(ev.request.url, draftId, ev.request.method)) {
+          draftGetPaused += 1;
+          await page.locator("#purpose").fill(duringReadEdit);
+          await until(
+            async () => (await dom()).localPurpose === duringReadEdit,
+            "during-read edit applied while GET paused",
+          );
+        }
+      } finally {
+        await readBarrier.send("Fetch.continueRequest", { requestId: ev.requestId });
+      }
+    };
+    readBarrier.on("Fetch.requestPaused", barrierHandler);
+
+    try {
+      const { envelope: got, observation: getObs } = await invoke("get_trip_draft", {
+        draftId,
+      });
+      assert.equal(got.ok, true);
+      assert.equal((got.data as { revision: number }).revision, 1);
+      assert.ok(draftGetPaused >= 1, "draft GET must pause at least once");
+      await until(async () => (await dom()).localPurpose === duringReadEdit, "during-read local edit");
+      assert.equal((await tripRow()).purpose, "");
+      assert.equal((await tripRow()).revision, 1);
+      assert.ok(getObs.nativeStatus === "success" || getObs.nativeStatus === "unknown");
+    } finally {
+      readBarrier.off("Fetch.requestPaused", barrierHandler);
+      await readBarrier.send("Fetch.disable").catch(() => undefined);
+      await readBarrier.detach().catch(() => undefined);
+    }
+
+    // Negative: while still dirty, update_trip_draft must refuse with zero PATCH.
+    let refusalPatches = 0;
+    const refusalCdp = await page.createCDPSession();
+    await refusalCdp.send("Fetch.enable", {
+      patterns: [{ urlPattern: "*/api/trips/*", requestStage: "Request" }],
+    });
+    const refusalHandler = async (ev: {
+      requestId: string;
+      request: { method: string; url: string };
+    }) => {
+      try {
+        if (isTripPatch(ev.request.url, draftId, ev.request.method)) {
+          refusalPatches += 1;
+        }
+      } finally {
+        await refusalCdp.send("Fetch.continueRequest", { requestId: ev.requestId });
+      }
+    };
+    refusalCdp.on("Fetch.requestPaused", refusalHandler);
+
+    let dirtyRefusalObs: NativeInvokeObservation;
+    try {
+      const refused = await invoke("update_trip_draft", {
+        draftId,
+        expectedRevision: 1,
+        commandId: "smoke-dirty-refusal",
+        patch: { destination: "SFO" },
+      });
+      dirtyRefusalObs = refused.observation;
+      assert.ok(isDirtyRefusal(refused.observation), "expected USER_EDIT_IN_PROGRESS");
+      assert.equal(refusalPatches, 0, "dirty refusal must issue zero PATCH requests");
+      assert.equal((await tripRow()).revision, 1);
+      assert.equal((await tripRow()).destination, "");
+    } finally {
+      refusalCdp.off("Fetch.requestPaused", refusalHandler);
+      await refusalCdp.send("Fetch.disable").catch(() => undefined);
+      await refusalCdp.detach().catch(() => undefined);
+    }
+
+    // Isolate dirty-read from later mutations: discard local edits first.
+    await page.click("[data-testid=discard-changes]");
+    await until(async () => (await dom()).localPurpose === "", "discarded local purpose");
     assert.equal((await tripRow()).revision, 1);
 
-    const normal = await invoke("update_trip_draft", {
+    const { envelope: normal } = await invoke("update_trip_draft", {
       draftId,
       expectedRevision: 1,
       commandId: "smoke-first-update",
@@ -314,7 +420,10 @@ async function runBrowserSmoke(): Promise<{
     assert.equal(normal.ok, true);
     assert.equal((await tripRow()).revision, 2);
 
-    const prep = await invoke("prepare_trip_review", { draftId, expectedRevision: 2 });
+    const { envelope: prep } = await invoke("prepare_trip_review", {
+      draftId,
+      expectedRevision: 2,
+    });
     assert.equal(prep.ok, true);
     assert.equal((prep.data as { submitted: boolean }).submitted, false);
     await page.waitForSelector("[data-testid=prepared-review]", { visible: true });
@@ -367,7 +476,7 @@ async function runBrowserSmoke(): Promise<{
       await cdp.send("Fetch.continueRequest", { requestId: ev.requestId });
     });
 
-    const lost = await invoke("update_trip_draft", {
+    const { envelope: lost } = await invoke("update_trip_draft", {
       draftId,
       expectedRevision: 2,
       commandId: sid,
@@ -383,7 +492,10 @@ async function runBrowserSmoke(): Promise<{
     await until(async () => (await dom()).localPurpose === localNote, "manual edit visible");
 
     hideReceipts = false;
-    const rechecked = await invoke("recheck_trip_update", { draftId, commandId: sid });
+    const { envelope: rechecked } = await invoke("recheck_trip_update", {
+      draftId,
+      commandId: sid,
+    });
     assert.equal(rechecked.ok, true);
     await until(
       async () => Number((await dom()).revision) === 3 && !(await dom()).pending,
@@ -450,9 +562,24 @@ async function runBrowserSmoke(): Promise<{
         mandatory: true,
         assertions: [
           "unsaved edit before get_trip_draft",
-          "unsaved edit during get_trip_draft",
+          "deterministic edit during paused draft GET",
           "saved DB purpose unchanged",
           "get_trip_draft returned revision 1",
+          `draftGetPaused=${draftGetPaused}`,
+        ],
+      },
+      {
+        id: "NATIVE-DIRTY-REFUSAL",
+        layer: "native",
+        status: "pass",
+        modelDirected: false,
+        mandatory: true,
+        assertions: [
+          "USER_EDIT_IN_PROGRESS while dirty",
+          "zero PATCH requests during refusal",
+          `nativeStatus=${dirtyRefusalObs.nativeStatus}`,
+          `errorCode=${dirtyRefusalObs.errorCode}`,
+          "discard-changes before subsequent mutation",
         ],
       },
       {
@@ -495,6 +622,8 @@ async function runBrowserSmoke(): Promise<{
         draftId,
         travelerTools,
         observerTools,
+        dirtyRead: { draftGetPaused, duringReadEdit },
+        dirtyRefusal: dirtyRefusalObs,
         preparedReview: { dom: reviewDOM, db: reviewDB },
         recovered: {
           patchRequests,
