@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
-    "agent-inspect": "6.31.36",
+    "agent-inspect": "^6.31.37",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
