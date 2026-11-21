@@ -163,6 +163,8 @@ export function evaluateTripEffectChecks(
     });
   }
 
+  // Independent DB revision claim — never pass without savedRevision.
+  // Receipt transition remains on original_command_receipt_matches (network).
   if (
     expected.expectedFromRevision == null ||
     expected.expectedToRevision == null
@@ -177,7 +179,7 @@ export function evaluateTripEffectChecks(
       },
       reason: "Expected revision transition not declared",
     });
-  } else if (!actual.receipt && actual.savedRevision == null) {
+  } else if (actual.savedRevision == null) {
     out.push({
       name: "revision_semantics_match",
       verdict: "unknown",
@@ -185,32 +187,35 @@ export function evaluateTripEffectChecks(
       evidence: {
         expectedFrom: expected.expectedFromRevision,
         expectedTo: expected.expectedToRevision,
+        receipt: actual.receipt ?? null,
+        savedRevision: null,
       },
-      reason: "Neither receipt nor independent saved revision observed",
+      reason: "Independent saved revision not observed",
     });
   } else {
-    const receiptOk =
-      actual.receipt !== undefined &&
-      actual.receipt !== null &&
-      actual.receipt.fromRevision === expected.expectedFromRevision &&
-      actual.receipt.toRevision === expected.expectedToRevision;
-    const savedOk =
-      actual.savedRevision == null ||
-      actual.savedRevision === expected.expectedToRevision;
-    const outcomeOk =
-      !actual.receipt ||
-      expected.expectedOutcomes.includes(actual.receipt.outcome);
+    const savedOk = actual.savedRevision === expected.expectedToRevision;
+    // Contradictory receipt still fails even when DB matches.
+    const receiptContradicts =
+      actual.receipt != null &&
+      (actual.receipt.fromRevision !== expected.expectedFromRevision ||
+        actual.receipt.toRevision !== expected.expectedToRevision ||
+        !expected.expectedOutcomes.includes(actual.receipt.outcome));
     out.push({
       name: "revision_semantics_match",
-      verdict: receiptOk && savedOk && outcomeOk ? "passed" : "failed",
+      verdict: savedOk && !receiptContradicts ? "passed" : "failed",
       method: "database",
       evidence: {
         expectedFrom: expected.expectedFromRevision,
         expectedTo: expected.expectedToRevision,
         expectedOutcomes: expected.expectedOutcomes,
         receipt: actual.receipt ?? null,
-        savedRevision: actual.savedRevision ?? null,
+        savedRevision: actual.savedRevision,
       },
+      reason: receiptContradicts
+        ? "Receipt contradicts declared revision/outcome transition"
+        : savedOk
+          ? undefined
+          : "Independent saved revision does not match expectedToRevision",
     });
   }
 
@@ -311,7 +316,7 @@ export function completedFromActual(actual: TripEffectActual): string[] {
   if (actual.observedResourceId) names.push("target_resource_matches");
   if (actual.receipt) names.push("original_command_receipt_matches");
   if (actual.savedFields) names.push("requested_change_observed");
-  if (actual.receipt || actual.savedRevision != null) {
+  if (actual.savedRevision != null) {
     names.push("revision_semantics_match");
   }
   if (actual.localObserved && actual.localFields) {

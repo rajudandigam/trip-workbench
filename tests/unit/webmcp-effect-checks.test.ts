@@ -194,4 +194,99 @@ describe("webmcp effect checks", () => {
     const required = obs.filter((o) => o.name !== "local_edits_preserved");
     expect(required.every((o) => o.verdict === "passed")).toBe(true);
   });
+
+  it("marks revision_semantics_match unknown when savedRevision is absent despite matching receipt", () => {
+    const actual = {
+      observedResourceId: "trip-a",
+      receipt: healthyActual.receipt,
+      savedFields: { destination: "BOS", purpose: "Customer workshop" },
+      submissions: 0,
+      completedObservations: completedFromActual({
+        observedResourceId: "trip-a",
+        receipt: healthyActual.receipt,
+        savedFields: { destination: "BOS" },
+        submissions: 0,
+      }),
+    };
+    expect(actual.completedObservations).not.toContain("revision_semantics_match");
+    const obs = evaluateTripEffectChecks(expected, actual);
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.verdict).toBe(
+      "unknown",
+    );
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.method).toBe(
+      "database",
+    );
+    expect(obs.find((o) => o.name === "capture_complete")?.verdict).toBe("failed");
+    expect(obs.every((o) => o.verdict === "passed")).toBe(false);
+  });
+
+  it("passes revision_semantics_match when independent revision matches", () => {
+    const actual = {
+      ...healthyActual,
+      completedObservations: completedFromActual(healthyActual),
+    };
+    expect(actual.completedObservations).toContain("revision_semantics_match");
+    const obs = evaluateTripEffectChecks(expected, actual);
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.verdict).toBe(
+      "passed",
+    );
+  });
+
+  it("fails revision_semantics_match when independent revision mismatches", () => {
+    const actual = {
+      ...healthyActual,
+      savedRevision: 2,
+      completedObservations: completedFromActual({
+        ...healthyActual,
+        savedRevision: 2,
+      }),
+    };
+    const obs = evaluateTripEffectChecks(expected, actual);
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.verdict).toBe(
+      "failed",
+    );
+  });
+
+  it("fails revision_semantics_match when receipt contradicts even if DB matches", () => {
+    const actual = {
+      ...healthyActual,
+      receipt: {
+        ...healthyActual.receipt,
+        outcome: "no_change",
+        fromRevision: 2,
+        toRevision: 2,
+      },
+      savedRevision: 3,
+      completedObservations: completedFromActual(healthyActual),
+    };
+    const obs = evaluateTripEffectChecks(expected, actual);
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.verdict).toBe(
+      "failed",
+    );
+  });
+
+  it("allows DB revision fact alone without claiming full receipt transition", () => {
+    const actual = {
+      observedResourceId: "trip-a",
+      receipt: null,
+      savedRevision: 3,
+      savedFields: { destination: "BOS" },
+      submissions: 0,
+      completedObservations: completedFromActual({
+        observedResourceId: "trip-a",
+        receipt: null,
+        savedRevision: 3,
+        savedFields: { destination: "BOS" },
+        submissions: 0,
+      }),
+    };
+    const obs = evaluateTripEffectChecks(expected, actual);
+    expect(
+      obs.find((o) => o.name === "original_command_receipt_matches")?.verdict,
+    ).toBe("unknown");
+    expect(obs.find((o) => o.name === "revision_semantics_match")?.verdict).toBe(
+      "passed",
+    );
+    expect(obs.find((o) => o.name === "capture_complete")?.verdict).toBe("failed");
+  });
 });

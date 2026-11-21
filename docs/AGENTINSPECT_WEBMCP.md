@@ -60,35 +60,59 @@ that executes, do not cite native coverage from this host.
 
 ## UI-synchronization matrix (native)
 
-`npm run test:webmcp-ui-sync-evidence` declares expected visible fields before
-each case and records `observeOutcome` at the **operation deadline** and again
-**after repair**:
+`npm run test:webmcp-ui-sync-evidence` declares expected visible fields and an
+observation budget before each case and records `observeOutcome` at the
+**operation deadline** and again **after repair**. All five expected case IDs
+must be accounted for; a runtime or writer-finalization failure cannot exit 0.
 
-| Case | Expectation |
-| --- | --- |
-| healthy-update | DOM + DB match at deadline |
-| stale-ui-then-repair | Test-only UI suppression after server commit → per-op fail; refresh repairs DOM while deadline failure stays in the trace |
-| missing-observer | Unknown / nonpass |
-| wrong-resource | Binding fail |
-| dirty-refusal | `USER_EDIT_IN_PROGRESS` + zero PATCH |
+| Case | Expectation | Label |
+| --- | --- | --- |
+| healthy-update | DOM + DB match at deadline | native |
+| stale-ui-then-repair | After server commit, **injected** input `.value` rewrite creates a visible mismatch; deadline fails; refresh repairs DOM while the deadline failure stays in the trace | native harness injection — **not** a reproduced React/cache-invalidation path |
+| missing-observer | Unknown / nonpass | synthetic control inside native harness |
+| wrong-resource | Binding fail | synthetic control inside native harness |
+| dirty-refusal | `USER_EDIT_IN_PROGRESS` + zero PATCH | native |
 
-Without Chrome, every case is **not_run** (exit 2). Do not claim pass.
+Without Chrome, every case is **not_run** (exit 2). Do not claim pass. Partial
+execution after some passes must exit nonzero with remaining cases `not_run`.
 
-## Compare lanes before expanding AgentInspect (C6)
+## Compare lanes (A / B / C)
 
-Same fixtures, three assertion lanes:
+Design for the same fixtures scored three ways:
 
 | Lane | What it sees | Blind spot |
 | --- | --- | --- |
-| **A — final Puppeteer DOM** | End-of-run visible fields | Misses mid-op stale UI that later repairs |
+| **A — final Puppeteer DOM** | End-of-run visible fields | Misses mid-op mismatch that later repairs |
 | **B — per-operation asserts** | Deadline + repair snapshots in the harness | App-local; not a portable evidence artifact |
 | **C — AgentInspect observeOutcome / Evidence** | Named facts with `dom`/`database`/`network` methods and phase labels | Only as honest as the observations recorded |
 
-**Decision (evidence-defect train):** A+B already catch the #553-class stale-then-repair case when the harness records the **operation deadline** separately from final DOM. Existing AgentInspect APIs (`observeOutcome`, `--fail-on-observation`, Evidence v2 `bundle verify`, `gen_ai.tool.name` matching on packed main) represent those facts without a new package, schema, or root dependency.
+**Status:** this A/B/C comparison is a planned native exercise, not a completed
+result until a real Chrome + disposable-DB run records all five cases and
+scores the three lanes on the same observations. The injected-mismatch case
+demonstrates detection of a deliberate visible/saved disagreement; it does not
+by itself prove a production cache-invalidation defect.
 
-Defects fixed in this train were **harness / adapter** issues (false-pass effect checks, invented API localPurpose, dirty→update sequencing, metadata denylist), not AgentInspect capability gaps. No new AgentInspect feature proposed. Revisit only if a concrete native case cannot be expressed with current OUTCOME events after Chrome execution lands.
+**Decision (evidence-defect train):** existing AgentInspect APIs
+(`observeOutcome`, `--fail-on-observation`, Evidence v2, `gen_ai.tool.name`)
+can represent these facts without a new package, schema, or root dependency.
+Harness defects (false-pass effect checks, incomplete UI-sync aggregation,
+receipt-only revision labeled as independent DB) are fixed in Trip Workbench.
+No new AgentInspect feature proposed unless a concrete native case cannot be
+expressed with current OUTCOME events after Chrome execution lands.
 
-Optional external DOM evaluator (Google WebMCP Evals @ `7dbfa4de`) remains comparison-only and was not required for this decision.
+Optional external DOM evaluator (Google WebMCP Evals) remains comparison-only.
+
+### Post-release validation snapshot (this host)
+
+| Gate | Result |
+| --- | --- |
+| `npm run test:unit` | 88 passed |
+| `npm run typecheck` | passed |
+| `npm run test:receipt-readback-evidence` | exit 0 (API); `revision_semantics_match` passed with independent SQL revision |
+| `npm run test:webmcp-ui-sync-evidence` | exit 2; all five cases `not_run` (`TW_CHROME_BIN` unset) |
+| `npm run test:webmcp-evidence` | exit 2; mandatory native cases blocked |
+
+**A/B/C native comparison:** not executed on this host (Chrome WebMCP binary not configured). Do not treat final-DOM or Evidence lanes as scored until a disposable-DB + `TW_CHROME_BIN` run completes. Expected when that run lands: (A) final DOM after repair can look healthy; (B) deadline fails on injected mismatch; (C) AgentInspect outcomes retain the deadline failure after repair. No new AgentInspect capability identified.
 
 ## Related AgentInspect recipe
 

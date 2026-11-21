@@ -25,21 +25,17 @@ import {
   observeNativeInvoke,
   type AppEnvelope,
 } from "./native-isolation.js";
+import {
+  EXPECTED_UI_SYNC_CASE_IDS,
+  finalizeUiSyncMatrix,
+  type UiSyncCaseId,
+  type UiSyncCaseReport,
+} from "./ui-sync-finalize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const blinkFlag = "--enable-blink-features=WebMCPTesting";
 
-type CaseId =
-  | "healthy-update"
-  | "stale-ui-then-repair"
-  | "missing-observer"
-  | "wrong-resource"
-  | "dirty-refusal";
-
-type CaseReport = {
-  id: CaseId;
-  status: "pass" | "fail" | "not_run" | "blocked";
-  reason?: string;
+type CaseReport = UiSyncCaseReport & {
   deadlineFacts?: SyncFact[];
   repairFacts?: SyncFact[];
   assertions?: string[];
@@ -91,27 +87,25 @@ async function main() {
     const reason = !chromeBin
       ? "TW_CHROME_BIN unset/missing — native UI-sync not run"
       : "dist/client missing — build before native UI-sync";
-    const cases: CaseReport[] = (
-      [
-        "healthy-update",
-        "stale-ui-then-repair",
-        "missing-observer",
-        "wrong-resource",
-        "dirty-refusal",
-      ] as CaseId[]
-    ).map((id) => ({ id, status: "not_run" as const, reason }));
+    const matrix = finalizeUiSyncMatrix({
+      reported: EXPECTED_UI_SYNC_CASE_IDS.map((id) => ({
+        id,
+        status: "not_run" as const,
+        reason,
+      })),
+    });
     const report = {
-      ok: false,
+      ok: matrix.ok,
       execution: "native",
-      native: "not_run",
+      native: matrix.native,
       note: "Do not claim UI-sync success. Re-run with TW_CHROME_BIN + npm run build.",
-      cases,
+      cases: matrix.cases,
       outRoot,
     };
     const reportPath = path.join(outRoot, "ui-sync-report.json");
     fs.writeFileSync(reportPath, JSON.stringify({ ...report, reportPath }, null, 2));
     console.log(JSON.stringify({ ...report, reportPath }, null, 2));
-    process.exitCode = 2;
+    process.exitCode = matrix.exitCode;
     return;
   }
 
@@ -119,16 +113,23 @@ async function main() {
   try {
     puppeteer = await import("puppeteer-core");
   } catch {
+    const matrix = finalizeUiSyncMatrix({
+      reported: EXPECTED_UI_SYNC_CASE_IDS.map((id) => ({
+        id,
+        status: "blocked" as const,
+        reason: "puppeteer-core missing",
+      })),
+    });
     const report = {
-      ok: false,
+      ok: matrix.ok,
       execution: "native",
-      native: "blocked",
+      native: matrix.native,
       note: "puppeteer-core missing",
-      cases: [] as CaseReport[],
+      cases: matrix.cases,
       outRoot,
     };
     console.log(JSON.stringify(report, null, 2));
-    process.exitCode = 2;
+    process.exitCode = matrix.exitCode;
     return;
   }
 
@@ -152,6 +153,9 @@ async function main() {
 
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
   const cases: CaseReport[] = [];
+  let activeCaseId: UiSyncCaseId | null = null;
+  let fatalError: string | null = null;
+  let finalizationError: string | null = null;
 
   try {
     browser = await puppeteer.launch({
@@ -194,13 +198,7 @@ async function main() {
 
     if (!mcpPage.webmcp?.tools) {
       const reason = "page.webmcp unavailable";
-      for (const id of [
-        "healthy-update",
-        "stale-ui-then-repair",
-        "missing-observer",
-        "wrong-resource",
-        "dirty-refusal",
-      ] as CaseId[]) {
+      for (const id of EXPECTED_UI_SYNC_CASE_IDS) {
         cases.push({ id, status: "blocked", reason });
       }
       throw new Error(reason);
@@ -281,6 +279,7 @@ async function main() {
     });
 
     // --- healthy-update ---
+    activeCaseId = "healthy-update";
     await inspector.run("ui-sync-healthy-update", async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
@@ -317,9 +316,15 @@ async function main() {
     });
 
     // Reset destination for remaining cases (revision now 3).
-    // --- stale-ui-then-repair ---
+    // --- stale-ui-then-repair (injected DOM mismatch after commit) ---
+    activeCaseId = "stale-ui-then-repair";
+    // Declared before mutation: observation budget and expected fields.
+    const STALE_EXPECTED_DOM = { destination: "SFO" } as const;
+    const STALE_EXPECTED_SAVED = { destination: "SFO" } as const;
+    const STALE_EXPECTED_REVISION = 4;
+    const STALE_OBSERVATION_BUDGET_MS = 8000;
     await inspector.run("ui-sync-stale-then-repair", async () => {
-      // Move to SFO so we can suppress UI after commit.
+      // Move to SFO so we can inject a visible-field mismatch after commit.
       const { envelope } = await invoke("update_trip_draft", {
         draftId,
         expectedRevision: 3,
@@ -329,8 +334,8 @@ async function main() {
       if (!envelope.ok) throw new Error("stale-case write failed");
       await until(async () => (await tripRow()).destination === "SFO", "db SFO");
 
-      // Test-only UI suppression: force the visible field back to the prior value
-      // without touching production query paths. Simulates #553-class lag.
+      // Injected DOM mismatch (test-only): rewrite input .value after the server
+      // commit. This is not a reproduced React/cache-invalidation path.
       await page.evaluate(() => {
         const el = (globalThis as unknown as {
           document: { querySelector: (s: string) => { value: string } | null };
@@ -340,9 +345,9 @@ async function main() {
 
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
-        expectedDomFields: { destination: "SFO" },
-        expectedSavedFields: { destination: "SFO" },
-        expectedRevision: 4,
+        expectedDomFields: { ...STALE_EXPECTED_DOM },
+        expectedSavedFields: { ...STALE_EXPECTED_SAVED },
+        expectedRevision: STALE_EXPECTED_REVISION,
       };
       const row = await tripRow();
       const dom = await readDom();
@@ -383,13 +388,15 @@ async function main() {
         deadlineFacts,
         repairFacts,
         assertions: [
-          "per-op deadline records UI lag while DB committed",
+          "injected DOM mismatch at deadline while DB committed",
           "after repair DOM matches; original deadline failure retained in trace",
+          `observationBudgetMs=${STALE_OBSERVATION_BUDGET_MS}`,
         ],
       });
     });
 
-    // --- missing-observer ---
+    // --- missing-observer (synthetic control inside native harness) ---
+    activeCaseId = "missing-observer";
     await inspector.run("ui-sync-missing-observer", async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
@@ -406,11 +413,12 @@ async function main() {
         id: "missing-observer",
         status: ok ? "pass" : "fail",
         deadlineFacts,
-        assertions: ["missing observer → unknown/nonpass"],
+        assertions: ["synthetic missing observer → unknown/nonpass"],
       });
     });
 
-    // --- wrong-resource ---
+    // --- wrong-resource (synthetic control inside native harness) ---
+    activeCaseId = "wrong-resource";
     await inspector.run("ui-sync-wrong-resource", async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
@@ -434,11 +442,12 @@ async function main() {
         id: "wrong-resource",
         status: bindingFailed ? "pass" : "fail",
         deadlineFacts,
-        assertions: ["wrong resource → binding fail"],
+        assertions: ["synthetic wrong resource → binding fail"],
       });
     });
 
     // --- dirty-refusal ---
+    activeCaseId = "dirty-refusal";
     await inspector.run("ui-sync-dirty-refusal", async () => {
       await page.locator("#purpose").fill("human-edit-for-refusal");
       await until(
@@ -503,52 +512,44 @@ async function main() {
         await cdp.detach().catch(() => undefined);
       }
     });
-
-    await inspector.flush();
-    await inspector.close();
+    activeCaseId = null;
   } catch (error) {
-    if (cases.length === 0) {
-      const reason = (error as Error).message || "ui-sync failed";
-      for (const id of [
-        "healthy-update",
-        "stale-ui-then-repair",
-        "missing-observer",
-        "wrong-resource",
-        "dirty-refusal",
-      ] as CaseId[]) {
-        cases.push({ id, status: "blocked", reason });
-      }
-    }
+    fatalError = (error as Error).message || "ui-sync failed";
   } finally {
+    try {
+      await inspector.flush();
+      await inspector.close();
+    } catch (error) {
+      finalizationError =
+        (error as Error).message || "inspector flush/close failed";
+    }
     if (browser) await browser.close().catch(() => undefined);
     await app.close();
   }
 
-  const failed = cases.filter((c) => c.status === "fail");
-  const incomplete = cases.filter(
-    (c) => c.status === "not_run" || c.status === "blocked",
-  );
-  const allPassed = cases.length > 0 && cases.every((c) => c.status === "pass");
-  const exitCode = failed.length > 0 ? 1 : incomplete.length > 0 ? 2 : allPassed ? 0 : 2;
+  const matrix = finalizeUiSyncMatrix({
+    reported: cases,
+    activeCaseId,
+    fatalError,
+    finalizationError,
+    incompleteReason: fatalError ?? undefined,
+  });
 
   const report = {
-    ok: exitCode === 0,
+    ok: matrix.ok,
     execution: "native",
-    native: incomplete.length > 0 ? "not_run" : failed.length > 0 ? "fail" : "pass",
-    note:
-      exitCode === 0
-        ? "Native UI-sync matrix passed with per-op + repair observations."
-        : exitCode === 2
-          ? "Native UI-sync not fully executed — do not claim success."
-          : "One or more UI-sync cases failed assertions.",
-    cases,
+    native: matrix.native,
+    note: matrix.note,
+    fatalError: matrix.fatalError,
+    finalizationError: matrix.finalizationError,
+    cases: matrix.cases,
     outRoot,
     traceDir,
   };
   const reportPath = path.join(outRoot, "ui-sync-report.json");
   fs.writeFileSync(reportPath, JSON.stringify({ ...report, reportPath }, null, 2));
   console.log(JSON.stringify({ ...report, reportPath }, null, 2));
-  process.exitCode = exitCode;
+  process.exitCode = matrix.exitCode;
 }
 
 main().catch((error) => {
