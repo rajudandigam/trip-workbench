@@ -9,4 +9,5 @@ cypress/screenshots/
 evals/evidence/raw/
 *.log
 .cursor/
+.vendor/
 GUIDE_DRIVEN_PROJECT_SKILL.md

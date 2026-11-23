@@ -78,41 +78,78 @@ execution after some passes must exit nonzero with remaining cases `not_run`.
 
 ## Compare lanes (A / B / C)
 
-Design for the same fixtures scored three ways:
+The UI-sync harness scores the **same** case observations three ways
+(`scripts/webmcp/ui-sync-comparison.ts`), reported under `abc` in
+`ui-sync-report.json`:
 
-| Lane | What it sees | Blind spot |
+| Lane | Source | Blind spot |
 | --- | --- | --- |
-| **A — final Puppeteer DOM** | End-of-run visible fields | Misses mid-op mismatch that later repairs |
-| **B — per-operation asserts** | Deadline + repair snapshots in the harness | App-local; not a portable evidence artifact |
-| **C — AgentInspect observeOutcome / Evidence** | Named facts with `dom`/`database`/`network` methods and phase labels | Only as honest as the observations recorded |
+| **A — final Puppeteer DOM** | End-of-run / post-repair visible fields | Misses mid-op mismatch that later repairs |
+| **B — per-operation asserts** | Deadline + repair `SyncFact`s in the harness | App-local; not a portable evidence artifact |
+| **C — persisted CLI / Evidence** | Written JSONL → public `agent-inspect check --evidence-on` + `bundle verify`; OUTCOME statuses read from disk | Only as honest as the observations recorded |
 
-**Status:** this A/B/C comparison is a planned native exercise, not a completed
-result until a real Chrome + disposable-DB run records all five cases and
-scores the three lanes on the same observations. The injected-mismatch case
-demonstrates detection of a deliberate visible/saved disagreement; it does not
-by itself prove a production cache-invalidation defect.
+Per case the report keeps separate fields:
 
-**Decision (evidence-defect train):** existing AgentInspect APIs
-(`observeOutcome`, `--fail-on-observation`, Evidence v2, `gen_ai.tool.name`)
-can represent these facts without a new package, schema, or root dependency.
-Harness defects (false-pass effect checks, incomplete UI-sync aggregation,
-receipt-only revision labeled as independent DB) are fixed in Trip Workbench.
-No new AgentInspect feature proposed unless a concrete native case cannot be
-expressed with current OUTCOME events after Chrome execution lands.
+- `fixtureStatus` — did the fixture demonstrate expected control behavior?
+- `operationVerdict` — did the app effect meet expectation?
+- `evidenceVerified` — did the Evidence artifact verify? (`null` when not scored)
 
-Optional external DOM evaluator (Google WebMCP Evals) remains comparison-only.
+When Chrome is unavailable, all five cases stay `not_run` and every lane is
+`not_scored` (exit 2). Do not mock native or weaken the gate.
 
-### Post-release validation snapshot (this host)
+The injected-mismatch case is an explicit harness control (DOM `.value` rewrite
+after commit). It is **not** a reproduced React/cache-invalidation path and is
+not an SLO/latency claim from the 8s poll budget.
 
-| Gate | Result |
+**Decision:** existing AgentInspect APIs (`observeOutcome`,
+`--fail-on-observation`, Evidence v2, `gen_ai.tool.name`) express these facts
+without a new package, schema, or root dependency. **Recommend stopping
+AgentInspect WebMCP feature expansion** unless a future Chrome run shows a
+concrete public-API defect. Optional external DOM evaluator (Google WebMCP
+Evals) remains comparison-only.
+
+### Validation snapshot (this host — 2026-11-22)
+
+| Anchor | Value |
 | --- | --- |
-| `npm run test:unit` | 88 passed |
-| `npm run typecheck` | passed |
-| `npm run test:receipt-readback-evidence` | exit 0 (API); `revision_semantics_match` passed with independent SQL revision |
-| `npm run test:webmcp-ui-sync-evidence` | exit 2; all five cases `not_run` (`TW_CHROME_BIN` unset) |
-| `npm run test:webmcp-evidence` | exit 2; mandatory native cases blocked |
+| Trip | main with A/B/C UI-sync wiring + `agent-inspect@6.31.41` (untracked `evals/evidence/native-smoke-*.json` ignored) |
+| AgentInspect HEAD (reference) | `2561eb3b8259b7df494862820d0aa76ec6f47400` |
+| `agent-inspect` (registry) | **6.31.41** (`registry.npmjs.org` tarball; not a workspace link) |
+| `puppeteer-core` | 25.16.0 |
+| Node / npm | v22.22.3 / 10.9.8 |
+| `TW_CHROME_BIN` | unset — native blocked |
+| `dist/client` | present after `npm run build` |
 
-**A/B/C native comparison:** not executed on this host (Chrome WebMCP binary not configured). Do not treat final-DOM or Evidence lanes as scored until a disposable-DB + `TW_CHROME_BIN` run completes. Expected when that run lands: (A) final DOM after repair can look healthy; (B) deadline fails on injected mismatch; (C) AgentInspect outcomes retain the deadline failure after repair. No new AgentInspect capability identified.
+| Gate | Exit | Notes |
+| --- | --- | --- |
+| `npm run test:unit` | 0 | 95 passed (includes `ui-sync-comparison`) |
+| `npm run typecheck` | 0 | client + server + node |
+| `npm run build` | 0 | client + server |
+| `npm run test:receipt-readback-evidence` | 0 | API; `checkExit=0`, `verifyExit=0`; `revision_semantics_match` with independent SQL revision |
+| `npm run test:webmcp-ui-sync-evidence` | 2 | five cases `not_run`; A/B/C all `not_scored`; `evidenceVerified=null` |
+| `npm run test:webmcp-evidence` | 2 | mandatory native cases blocked (`NATIVE-TOOL-DISCOVERY`, dirty-read/refusal, prepare-review, recheck-update) |
+
+**Five-case accounting (Chrome blocked):**
+
+| Case | fixtureStatus | operationVerdict | A / B / C |
+| --- | --- | --- | --- |
+| healthy-update | not_run | not_scored | not_scored ×3 |
+| stale-ui-then-repair | not_run | not_scored | not_scored ×3 |
+| missing-observer | not_run | not_scored | not_scored ×3 |
+| wrong-resource | not_run | not_scored | not_scored ×3 |
+| dirty-refusal | not_run | not_scored | not_scored ×3 |
+
+**When Chrome + disposable `TEST_DATABASE_URL` land:** expect (A) final DOM after
+repair can look healthy on the injected-mismatch case; (B) deadline fails on
+injected mismatch; (C) persisted OUTCOME retains the deadline failure after
+repair and Evidence verifies. Artifacts live under the run’s temp `outRoot`
+(`traces/*.jsonl`, `evidence/`, `ui-sync-report.json`) — synthetic/share-checked
+only; no customer data.
+
+**Blockers:** `TW_CHROME_BIN` unset (no WebMCP-capable Chrome on this host);
+`git fetch` to GitHub failed here with SSH `Permission denied (publickey)` —
+local `origin/main` already matched recorded HEADs. No AgentInspect core change
+made; no public-API defect demonstrated.
 
 ## Related AgentInspect recipe
 

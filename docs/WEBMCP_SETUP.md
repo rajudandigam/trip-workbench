@@ -84,7 +84,7 @@ Native scenario isolation (when Chrome + disposable DB are available):
 
 If Chrome is unavailable, leave native cases **blocked** (strict exit 2); do not claim a pass.
 
-UI-sync matrix (`npm run test:webmcp-ui-sync-evidence`): requires the same Chrome + disposable DB prerequisites; exit 2 / `not_run` when blocked. The stale case uses an **injected** DOM `.value` rewrite after commit (detection demo), not a reproduced cache-invalidation path. See [AGENTINSPECT_WEBMCP.md](AGENTINSPECT_WEBMCP.md).
+UI-sync matrix (`npm run test:webmcp-ui-sync-evidence`): requires the same Chrome + disposable DB prerequisites; exit 2 / `not_run` when blocked. Scores A/B/C (final DOM / per-op facts / persisted CLI+Evidence) on the same observations; see [AGENTINSPECT_WEBMCP.md](AGENTINSPECT_WEBMCP.md). The stale case uses an **injected** DOM `.value` rewrite after commit (detection demo), not a reproduced cache-invalidation path.
 
 ## Model-directed journeys
 

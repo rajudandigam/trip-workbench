@@ -31,6 +31,12 @@ import {
   type UiSyncCaseId,
   type UiSyncCaseReport,
 } from "./ui-sync-finalize.js";
+import {
+  expectedFinalDomForCase,
+  runPersistedCliEvidence,
+  scoreCaseAbc,
+  type CaseAbcReport,
+} from "./ui-sync-comparison.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const blinkFlag = "--enable-blink-features=WebMCPTesting";
@@ -39,6 +45,7 @@ type CaseReport = UiSyncCaseReport & {
   deadlineFacts?: SyncFact[];
   repairFacts?: SyncFact[];
   assertions?: string[];
+  finalDomFields?: Record<string, string>;
 };
 
 function resolveChromeBin(): string | null {
@@ -94,12 +101,26 @@ async function main() {
         reason,
       })),
     });
+    const abc: CaseAbcReport[] = matrix.cases.map((c) =>
+      scoreCaseAbc({
+        caseId: c.id,
+        fixtureStatus: c.status,
+        outcomes: [],
+        evidenceVerified: null,
+      }),
+    );
     const report = {
       ok: matrix.ok,
       execution: "native",
       native: matrix.native,
       note: "Do not claim UI-sync success. Re-run with TW_CHROME_BIN + npm run build.",
       cases: matrix.cases,
+      abc,
+      lanes: {
+        A: "final_dom",
+        B: "per_op_deadline_repair",
+        C: "persisted_cli_evidence",
+      },
       outRoot,
     };
     const reportPath = path.join(outRoot, "ui-sync-report.json");
@@ -120,12 +141,26 @@ async function main() {
         reason: "puppeteer-core missing",
       })),
     });
+    const abc: CaseAbcReport[] = matrix.cases.map((c) =>
+      scoreCaseAbc({
+        caseId: c.id,
+        fixtureStatus: c.status,
+        outcomes: [],
+        evidenceVerified: null,
+      }),
+    );
     const report = {
       ok: matrix.ok,
       execution: "native",
       native: matrix.native,
       note: "puppeteer-core missing",
       cases: matrix.cases,
+      abc,
+      lanes: {
+        A: "final_dom",
+        B: "per_op_deadline_repair",
+        C: "persisted_cli_evidence",
+      },
       outRoot,
     };
     console.log(JSON.stringify(report, null, 2));
@@ -311,6 +346,7 @@ async function main() {
         id: "healthy-update",
         status: ok ? "pass" : "fail",
         deadlineFacts,
+        finalDomFields: { destination: dom.destination },
         assertions: ["DOM+DB match at operation deadline"],
       });
     });
@@ -387,10 +423,12 @@ async function main() {
         status: deadlineFailed && repairOk ? "pass" : "fail",
         deadlineFacts,
         repairFacts,
+        finalDomFields: { destination: dom2.destination },
         assertions: [
           "injected DOM mismatch at deadline while DB committed",
           "after repair DOM matches; original deadline failure retained in trace",
           `observationBudgetMs=${STALE_OBSERVATION_BUDGET_MS}`,
+          "injection: synthetic DOM .value rewrite (not React/cache-invalidation)",
         ],
       });
     });
@@ -499,10 +537,12 @@ async function main() {
           isDirtyRefusal(refused.observation) &&
           patchCount === 0 &&
           deadlineFacts.every((f) => f.verdict === "passed");
+        const domAfter = await readDom();
         cases.push({
           id: "dirty-refusal",
           status: ok ? "pass" : "fail",
           deadlineFacts,
+          finalDomFields: { destination: domAfter.destination },
           assertions: ["dirty refusal → USER_EDIT_IN_PROGRESS + zero PATCH"],
         });
         await page.click("[data-testid=discard-changes]");
@@ -535,6 +575,37 @@ async function main() {
     incompleteReason: fatalError ?? undefined,
   });
 
+  // Lane C: score from disk after flush/close — not from in-memory observeOutcome args.
+  const evidenceDir = path.join(outRoot, "evidence");
+  const persisted =
+    matrix.native === "not_run"
+      ? null
+      : runPersistedCliEvidence({
+          traceDir,
+          evidenceDir,
+        });
+  const evidenceVerified =
+    persisted && !persisted.missingArtifact
+      ? persisted.verifyExit === 0
+      : matrix.native === "not_run"
+        ? null
+        : false;
+  const reportedById = new Map(cases.map((c) => [c.id, c]));
+  const abc: CaseAbcReport[] = matrix.cases.map((c) => {
+    const reported = reportedById.get(c.id);
+    return scoreCaseAbc({
+      caseId: c.id,
+      fixtureStatus: c.status,
+      deadlineFacts: reported?.deadlineFacts,
+      repairFacts: reported?.repairFacts,
+      finalDomFields: reported?.finalDomFields ?? null,
+      expectedFinalDomFields: expectedFinalDomForCase(c.id),
+      outcomes: persisted?.outcomes ?? [],
+      evidenceVerified,
+      missingArtifact: persisted?.missingArtifact === true,
+    });
+  });
+
   const report = {
     ok: matrix.ok,
     execution: "native",
@@ -543,6 +614,27 @@ async function main() {
     fatalError: matrix.fatalError,
     finalizationError: matrix.finalizationError,
     cases: matrix.cases,
+    abc,
+    lanes: {
+      A: "final_dom",
+      B: "per_op_deadline_repair",
+      C: "persisted_cli_evidence",
+      note: "Lane A may miss pre-repair injected mismatch; B/C retain deadline failure.",
+    },
+    persistedEvidence: persisted
+      ? {
+          traceFile: persisted.traceFile,
+          evidenceDir: persisted.evidenceDir,
+          checkExit: persisted.checkExit,
+          verifyExit: persisted.verifyExit,
+          missingArtifact: persisted.missingArtifact,
+          // Nonzero check is expected when the matrix includes failed/unknown
+          // observations; fixture pass for those cases requires the named
+          // observation to explain the finding (see lane C per case).
+          checkStdout: persisted.checkStdout.slice(0, 1500),
+          verifyStdout: persisted.verifyStdout.slice(0, 800),
+        }
+      : null,
     outRoot,
     traceDir,
   };
