@@ -32,10 +32,16 @@ import {
   type UiSyncCaseReport,
 } from "./ui-sync-finalize.js";
 import {
+  UI_SYNC_SEED_RUN_ID,
+  combineUiSyncExit,
+  evaluateEvidenceGate,
   expectedFinalDomForCase,
+  requiredToolForCase,
+  runIdForCase,
   runPersistedCliEvidence,
   scoreCaseAbc,
   type CaseAbcReport,
+  type PersistedCliEvidenceResult,
 } from "./ui-sync-comparison.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +52,7 @@ type CaseReport = UiSyncCaseReport & {
   repairFacts?: SyncFact[];
   assertions?: string[];
   finalDomFields?: Record<string, string>;
+  runId?: string;
 };
 
 function resolveChromeBin(): string | null {
@@ -107,6 +114,7 @@ async function main() {
         fixtureStatus: c.status,
         outcomes: [],
         evidenceVerified: null,
+        evidenceOk: null,
       }),
     );
     const report = {
@@ -121,6 +129,7 @@ async function main() {
         B: "per_op_deadline_repair",
         C: "persisted_cli_evidence",
       },
+      seedRunId: UI_SYNC_SEED_RUN_ID,
       outRoot,
     };
     const reportPath = path.join(outRoot, "ui-sync-report.json");
@@ -147,6 +156,7 @@ async function main() {
         fixtureStatus: c.status,
         outcomes: [],
         evidenceVerified: null,
+        evidenceOk: null,
       }),
     );
     const report = {
@@ -161,6 +171,7 @@ async function main() {
         B: "per_op_deadline_repair",
         C: "persisted_cli_evidence",
       },
+      seedRunId: UI_SYNC_SEED_RUN_ID,
       outRoot,
     };
     console.log(JSON.stringify(report, null, 2));
@@ -240,16 +251,37 @@ async function main() {
     }
     await until(() => (mcpPage.webmcp?.tools().length ?? 0) >= 4, "tools ready");
 
-    const invoke = async (name: string, args: Record<string, unknown>) => {
-      const tool = mcpPage.webmcp!.tools().find((t) => t.name === name);
-      if (!tool) throw new Error(`missing tool ${name}`);
-      const call = await tool.execute(args, { signal: AbortSignal.timeout(8000) });
-      const envelope = parseEnvelope(call.output);
-      const observation = observeNativeInvoke(name, call, envelope);
-      if (!envelope) {
-        throw new Error(`${name} missing envelope (native=${observation.nativeStatus})`);
-      }
-      return { envelope, observation };
+    const invoke = async (
+      name: string,
+      args: Record<string, unknown>,
+      stepMeta?: { operation?: string },
+    ) => {
+      return inspector.step(
+        name,
+        async () => {
+          const tool = mcpPage.webmcp!.tools().find((t) => t.name === name);
+          if (!tool) throw new Error(`missing tool ${name}`);
+          const call = await tool.execute(args, {
+            signal: AbortSignal.timeout(8000),
+          });
+          const envelope = parseEnvelope(call.output);
+          const observation = observeNativeInvoke(name, call, envelope);
+          if (!envelope) {
+            throw new Error(
+              `${name} missing envelope (native=${observation.nativeStatus})`,
+            );
+          }
+          return { envelope, observation };
+        },
+        {
+          type: "tool",
+          metadata: {
+            domain: "trip",
+            operation: stepMeta?.operation ?? name,
+            execution: "native",
+          },
+        },
+      );
     };
 
     const tripRow = async (id = draftId) =>
@@ -295,39 +327,53 @@ async function main() {
       }
     };
 
-    // Seed a known revision-2 draft for subsequent cases.
-    await inspector.run("ui-sync-seed", async () => {
-      const { envelope } = await invoke("update_trip_draft", {
-        draftId,
-        expectedRevision: 1,
-        commandId: "ui-sync-seed",
-        patch: {
-          destination: "JFK",
-          departureDate: "2026-11-12",
-          returnDate: "2026-11-15",
-          cabin: "business",
-          purpose: "Customer workshop",
-        },
-      });
-      if (!envelope.ok) throw new Error("seed update failed");
-      await until(async () => (await tripRow()).revision === 2, "seed revision 2");
-    });
+    // Seed a known revision-2 draft for subsequent cases (not a scored case).
+    await inspector.run(
+      "ui-sync-seed",
+      async () => {
+        const { envelope } = await invoke(
+          "update_trip_draft",
+          {
+            draftId,
+            expectedRevision: 1,
+            commandId: "ui-sync-seed",
+            patch: {
+              destination: "JFK",
+              departureDate: "2026-11-12",
+              returnDate: "2026-11-15",
+              cabin: "business",
+              purpose: "Customer workshop",
+            },
+          },
+          { operation: "update" },
+        );
+        if (!envelope.ok) throw new Error("seed update failed");
+        await until(async () => (await tripRow()).revision === 2, "seed revision 2");
+      },
+      { runId: UI_SYNC_SEED_RUN_ID },
+    );
 
     // --- healthy-update ---
     activeCaseId = "healthy-update";
-    await inspector.run("ui-sync-healthy-update", async () => {
+    await inspector.run(
+      "ui-sync-healthy-update",
+      async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
         expectedDomFields: { destination: "BOS" },
         expectedSavedFields: { destination: "BOS" },
         expectedRevision: 3,
       };
-      const { envelope } = await invoke("update_trip_draft", {
-        draftId,
-        expectedRevision: 2,
-        commandId: "ui-sync-healthy",
-        patch: { destination: "BOS" },
-      });
+      const { envelope } = await invoke(
+        "update_trip_draft",
+        {
+          draftId,
+          expectedRevision: 2,
+          commandId: "ui-sync-healthy",
+          patch: { destination: "BOS" },
+        },
+        { operation: "update" },
+      );
       if (!envelope.ok) throw new Error("healthy update failed");
       await until(async () => (await tripRow()).destination === "BOS", "db BOS");
       await until(async () => (await readDom()).destination === "BOS", "dom BOS");
@@ -345,11 +391,14 @@ async function main() {
       cases.push({
         id: "healthy-update",
         status: ok ? "pass" : "fail",
+        runId: runIdForCase("healthy-update"),
         deadlineFacts,
         finalDomFields: { destination: dom.destination },
         assertions: ["DOM+DB match at operation deadline"],
       });
-    });
+    },
+      { runId: runIdForCase("healthy-update") },
+    );
 
     // Reset destination for remaining cases (revision now 3).
     // --- stale-ui-then-repair (injected DOM mismatch after commit) ---
@@ -359,14 +408,20 @@ async function main() {
     const STALE_EXPECTED_SAVED = { destination: "SFO" } as const;
     const STALE_EXPECTED_REVISION = 4;
     const STALE_OBSERVATION_BUDGET_MS = 8000;
-    await inspector.run("ui-sync-stale-then-repair", async () => {
+    await inspector.run(
+      "ui-sync-stale-then-repair",
+      async () => {
       // Move to SFO so we can inject a visible-field mismatch after commit.
-      const { envelope } = await invoke("update_trip_draft", {
-        draftId,
-        expectedRevision: 3,
-        commandId: "ui-sync-stale-write",
-        patch: { destination: "SFO" },
-      });
+      const { envelope } = await invoke(
+        "update_trip_draft",
+        {
+          draftId,
+          expectedRevision: 3,
+          commandId: "ui-sync-stale-write",
+          patch: { destination: "SFO" },
+        },
+        { operation: "update" },
+      );
       if (!envelope.ok) throw new Error("stale-case write failed");
       await until(async () => (await tripRow()).destination === "SFO", "db SFO");
 
@@ -397,7 +452,7 @@ async function main() {
       await recordFacts(deadlineFacts, "stale.deadline");
 
       // Repair: discard/re-read via get_trip_draft (or reload).
-      await invoke("get_trip_draft", { draftId });
+      await invoke("get_trip_draft", { draftId }, { operation: "read" });
       await until(async () => (await readDom()).destination === "SFO", "repair DOM");
       const row2 = await tripRow();
       const dom2 = await readDom();
@@ -421,6 +476,7 @@ async function main() {
       cases.push({
         id: "stale-ui-then-repair",
         status: deadlineFailed && repairOk ? "pass" : "fail",
+        runId: runIdForCase("stale-ui-then-repair"),
         deadlineFacts,
         repairFacts,
         finalDomFields: { destination: dom2.destination },
@@ -431,11 +487,15 @@ async function main() {
           "injection: synthetic DOM .value rewrite (not React/cache-invalidation)",
         ],
       });
-    });
+    },
+      { runId: runIdForCase("stale-ui-then-repair") },
+    );
 
     // --- missing-observer (synthetic control inside native harness) ---
     activeCaseId = "missing-observer";
-    await inspector.run("ui-sync-missing-observer", async () => {
+    await inspector.run(
+      "ui-sync-missing-observer",
+      async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
         expectedDomFields: { destination: "SFO" },
@@ -450,14 +510,19 @@ async function main() {
       cases.push({
         id: "missing-observer",
         status: ok ? "pass" : "fail",
+        runId: runIdForCase("missing-observer"),
         deadlineFacts,
         assertions: ["synthetic missing observer → unknown/nonpass"],
       });
-    });
+    },
+      { runId: runIdForCase("missing-observer") },
+    );
 
     // --- wrong-resource (synthetic control inside native harness) ---
     activeCaseId = "wrong-resource";
-    await inspector.run("ui-sync-wrong-resource", async () => {
+    await inspector.run(
+      "ui-sync-wrong-resource",
+      async () => {
       const expectation: UiSyncExpectation = {
         resourceId: draftId,
         expectedDomFields: { destination: "SFO" },
@@ -479,14 +544,19 @@ async function main() {
       cases.push({
         id: "wrong-resource",
         status: bindingFailed ? "pass" : "fail",
+        runId: runIdForCase("wrong-resource"),
         deadlineFacts,
         assertions: ["synthetic wrong resource → binding fail"],
       });
-    });
+    },
+      { runId: runIdForCase("wrong-resource") },
+    );
 
     // --- dirty-refusal ---
     activeCaseId = "dirty-refusal";
-    await inspector.run("ui-sync-dirty-refusal", async () => {
+    await inspector.run(
+      "ui-sync-dirty-refusal",
+      async () => {
       await page.locator("#purpose").fill("human-edit-for-refusal");
       await until(
         async () => (await readDom()).purpose === "human-edit-for-refusal",
@@ -510,12 +580,16 @@ async function main() {
       cdp.on("Fetch.requestPaused", handler);
       try {
         const before = await tripRow();
-        const refused = await invoke("update_trip_draft", {
-          draftId,
-          expectedRevision: before.revision,
-          commandId: "ui-sync-dirty-refusal",
-          patch: { destination: "LAX" },
-        });
+        const refused = await invoke(
+          "update_trip_draft",
+          {
+            draftId,
+            expectedRevision: before.revision,
+            commandId: "ui-sync-dirty-refusal",
+            patch: { destination: "LAX" },
+          },
+          { operation: "update" },
+        );
         const expectation: UiSyncExpectation = {
           resourceId: draftId,
           expectedDomFields: { destination: before.destination },
@@ -541,9 +615,12 @@ async function main() {
         cases.push({
           id: "dirty-refusal",
           status: ok ? "pass" : "fail",
+          runId: runIdForCase("dirty-refusal"),
           deadlineFacts,
           finalDomFields: { destination: domAfter.destination },
-          assertions: ["dirty refusal → USER_EDIT_IN_PROGRESS + zero PATCH"],
+          assertions: [
+            "dirty refusal → USER_EDIT_IN_PROGRESS + zero PATCH (explicit no-write)",
+          ],
         });
         await page.click("[data-testid=discard-changes]");
       } finally {
@@ -551,7 +628,9 @@ async function main() {
         await cdp.send("Fetch.disable").catch(() => undefined);
         await cdp.detach().catch(() => undefined);
       }
-    });
+    },
+      { runId: runIdForCase("dirty-refusal") },
+    );
     activeCaseId = null;
   } catch (error) {
     fatalError = (error as Error).message || "ui-sync failed";
@@ -575,24 +654,39 @@ async function main() {
     incompleteReason: fatalError ?? undefined,
   });
 
-  // Lane C: score from disk after flush/close — not from in-memory observeOutcome args.
-  const evidenceDir = path.join(outRoot, "evidence");
-  const persisted =
-    matrix.native === "not_run"
-      ? null
-      : runPersistedCliEvidence({
-          traceDir,
-          evidenceDir,
-        });
-  const evidenceVerified =
-    persisted && !persisted.missingArtifact
-      ? persisted.verifyExit === 0
-      : matrix.native === "not_run"
-        ? null
-        : false;
+  // Lane C: per-case owned JSONL after flush/close — never shared mtime pick.
   const reportedById = new Map(cases.map((c) => [c.id, c]));
+  const perCaseEvidence: Record<string, PersistedCliEvidenceResult | null> = {};
   const abc: CaseAbcReport[] = matrix.cases.map((c) => {
     const reported = reportedById.get(c.id);
+    const runId = runIdForCase(c.id);
+    if (matrix.native === "not_run" || c.status === "not_run" || c.status === "blocked") {
+      perCaseEvidence[c.id] = null;
+      return scoreCaseAbc({
+        caseId: c.id,
+        fixtureStatus: c.status,
+        deadlineFacts: reported?.deadlineFacts,
+        repairFacts: reported?.repairFacts,
+        finalDomFields: reported?.finalDomFields ?? null,
+        expectedFinalDomFields: expectedFinalDomForCase(c.id),
+        outcomes: [],
+        evidenceVerified: null,
+        evidenceOk: null,
+        traceFile: null,
+      });
+    }
+
+    const evidenceDir = path.join(outRoot, "evidence", c.id);
+    const persisted = runPersistedCliEvidence({
+      traceDir,
+      runId,
+      evidenceDir,
+      requiredTool: requiredToolForCase(c.id),
+    });
+    perCaseEvidence[c.id] = persisted;
+    const gate = evaluateEvidenceGate(c.id, persisted);
+    const evidenceVerified =
+      !persisted.missingArtifact && persisted.verifyExit === 0;
     return scoreCaseAbc({
       caseId: c.id,
       fixtureStatus: c.status,
@@ -600,48 +694,69 @@ async function main() {
       repairFacts: reported?.repairFacts,
       finalDomFields: reported?.finalDomFields ?? null,
       expectedFinalDomFields: expectedFinalDomForCase(c.id),
-      outcomes: persisted?.outcomes ?? [],
+      outcomes: persisted.outcomes,
       evidenceVerified,
-      missingArtifact: persisted?.missingArtifact === true,
+      evidenceOk: gate.ok,
+      missingArtifact: persisted.missingArtifact,
+      traceFile: persisted.traceFile,
     });
   });
 
+  const combined = combineUiSyncExit({
+    matrixExitCode: matrix.exitCode,
+    matrixOk: matrix.ok,
+    caseEvidence: abc.map((a) => ({
+      caseId: a.caseId,
+      evidenceOk: a.evidenceOk,
+    })),
+  });
+
   const report = {
-    ok: matrix.ok,
+    ok: combined.ok,
     execution: "native",
     native: matrix.native,
-    note: matrix.note,
+    note:
+      combined.evidenceFailed.length > 0
+        ? `Evidence gate failed for: ${combined.evidenceFailed.join(", ")}`
+        : matrix.note,
     fatalError: matrix.fatalError,
     finalizationError: matrix.finalizationError,
     cases: matrix.cases,
     abc,
+    seedRunId: UI_SYNC_SEED_RUN_ID,
     lanes: {
       A: "final_dom",
       B: "per_op_deadline_repair",
-      C: "persisted_cli_evidence",
-      note: "Lane A may miss pre-repair injected mismatch; B/C retain deadline failure.",
+      C: "persisted_cli_evidence_owned_run",
+      note: "Lane A may miss pre-repair injected mismatch; B/C retain deadline failure. Ownership is case→runId→JSONL (not mtime).",
     },
-    persistedEvidence: persisted
-      ? {
-          traceFile: persisted.traceFile,
-          evidenceDir: persisted.evidenceDir,
-          checkExit: persisted.checkExit,
-          verifyExit: persisted.verifyExit,
-          missingArtifact: persisted.missingArtifact,
-          // Nonzero check is expected when the matrix includes failed/unknown
-          // observations; fixture pass for those cases requires the named
-          // observation to explain the finding (see lane C per case).
-          checkStdout: persisted.checkStdout.slice(0, 1500),
-          verifyStdout: persisted.verifyStdout.slice(0, 800),
-        }
-      : null,
+    persistedEvidenceByCase: Object.fromEntries(
+      Object.entries(perCaseEvidence).map(([id, p]) => [
+        id,
+        p
+          ? {
+              runId: p.runId,
+              traceFile: p.traceFile,
+              evidenceDir: p.evidenceDir,
+              checkExit: p.checkExit,
+              verifyExit: p.verifyExit,
+              missingArtifact: p.missingArtifact,
+              checkParseError: p.checkParseError,
+              cliError: p.cliError,
+              outputOverflow: p.outputOverflow,
+              checkStdoutPreview: p.checkStdoutPreview,
+              verifyStdoutPreview: p.verifyStdoutPreview,
+            }
+          : null,
+      ]),
+    ),
     outRoot,
     traceDir,
   };
   const reportPath = path.join(outRoot, "ui-sync-report.json");
   fs.writeFileSync(reportPath, JSON.stringify({ ...report, reportPath }, null, 2));
   console.log(JSON.stringify({ ...report, reportPath }, null, 2));
-  process.exitCode = matrix.exitCode;
+  process.exitCode = combined.exitCode;
 }
 
 main().catch((error) => {
