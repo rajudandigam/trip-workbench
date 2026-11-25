@@ -631,6 +631,102 @@ async function main() {
     },
       { runId: runIdForCase("dirty-refusal") },
     );
+
+    // --- stale-state-omit-then-repair (omit shared-state apply after commit) ---
+    activeCaseId = "stale-state-omit-then-repair";
+    const STATE_OMIT_EXPECTED = { destination: "LAX" } as const;
+    await inspector.run(
+      "ui-sync-stale-state-omit-then-repair",
+      async () => {
+        await page.evaluate(() => {
+          const g = globalThis as unknown as {
+            __TW_TEST_HOOKS__?: { omitConfirmedStateApply?: boolean };
+          };
+          g.__TW_TEST_HOOKS__ = { omitConfirmedStateApply: true };
+        });
+        try {
+          const before = await tripRow();
+          const { envelope } = await invoke(
+            "update_trip_draft",
+            {
+              draftId,
+              expectedRevision: before.revision,
+              commandId: "ui-sync-state-omit-write",
+              patch: { destination: "LAX" },
+            },
+            { operation: "update" },
+          );
+          if (!envelope.ok) throw new Error("state-omit write failed");
+          await until(async () => (await tripRow()).destination === "LAX", "db LAX");
+
+          const expectation: UiSyncExpectation = {
+            resourceId: draftId,
+            expectedDomFields: { ...STATE_OMIT_EXPECTED },
+            expectedSavedFields: { ...STATE_OMIT_EXPECTED },
+            expectedRevision: before.revision + 1,
+          };
+          const row = await tripRow();
+          const dom = await readDom();
+          const deadlineFacts = evaluateUiSyncAtDeadline(expectation, {
+            resourceId: row.id,
+            domFields: { destination: dom.destination },
+            savedFields: { destination: row.destination },
+            savedRevision: row.revision,
+            observerPresent: true,
+          });
+          await recordFacts(deadlineFacts, "stateomit.deadline");
+
+          await page.evaluate(() => {
+            const g = globalThis as unknown as {
+              __TW_TEST_HOOKS__?: { omitConfirmedStateApply?: boolean };
+            };
+            if (g.__TW_TEST_HOOKS__) g.__TW_TEST_HOOKS__.omitConfirmedStateApply = false;
+          });
+          await invoke("get_trip_draft", { draftId }, { operation: "read" });
+          await until(async () => (await readDom()).destination === "LAX", "repair DOM LAX");
+          const row2 = await tripRow();
+          const dom2 = await readDom();
+          const repairFacts = evaluateUiSyncAtDeadline(
+            expectation,
+            {
+              resourceId: row2.id,
+              domFields: { destination: dom2.destination },
+              savedFields: { destination: row2.destination },
+              savedRevision: row2.revision,
+              observerPresent: true,
+            },
+            "after_repair",
+          );
+          await recordFacts(repairFacts, "stateomit.repair");
+
+          const deadlineFailed = deadlineFacts.some(
+            (f) => f.name === "ui_matches_saved" && f.verdict === "failed",
+          );
+          const repairOk = repairFacts.every((f) => f.verdict === "passed");
+          cases.push({
+            id: "stale-state-omit-then-repair",
+            status: deadlineFailed && repairOk ? "pass" : "fail",
+            runId: runIdForCase("stale-state-omit-then-repair"),
+            deadlineFacts,
+            repairFacts,
+            finalDomFields: { destination: dom2.destination },
+            assertions: [
+              "backend commit succeeded while shared state apply was omitted",
+              "deadline UI stale vs DB; repair via get_trip_draft restores DOM",
+              "fixture: coordinator __TW_TEST_HOOKS__.omitConfirmedStateApply (not DOM .value rewrite)",
+            ],
+          });
+        } finally {
+          await page.evaluate(() => {
+            const g = globalThis as unknown as {
+              __TW_TEST_HOOKS__?: { omitConfirmedStateApply?: boolean };
+            };
+            delete g.__TW_TEST_HOOKS__;
+          });
+        }
+      },
+      { runId: runIdForCase("stale-state-omit-then-repair") },
+    );
     activeCaseId = null;
   } catch (error) {
     fatalError = (error as Error).message || "ui-sync failed";

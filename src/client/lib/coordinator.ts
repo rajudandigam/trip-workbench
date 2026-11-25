@@ -186,6 +186,17 @@ export function createCoordinator(deps: { fetchImpl?: typeof api } = {}) {
       return fail("CONTEXT_MISMATCH", "Draft is no longer open.");
     }
 
+    // Test-only: simulate omitted shared-state invalidation after a successful
+    // backend commit (backend ok, localFields/savedDraft left unchanged).
+    const testHooks = (globalThis as unknown as {
+      __TW_TEST_HOOKS__?: { omitConfirmedStateApply?: boolean };
+    }).__TW_TEST_HOOKS__;
+    if (testHooks?.omitConfirmedStateApply) {
+      endOperation(ctx.operationId);
+      setState({ saving: false, message: null, pendingOutcome: null });
+      return { ok: true, data: receipt };
+    }
+
     // Historical receipt must not regress newer UI state.
     if (
       receipt.toRevision != null &&

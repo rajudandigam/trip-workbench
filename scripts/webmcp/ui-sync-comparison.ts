@@ -415,6 +415,11 @@ export function requiredNamedOutcomesForCase(
         { name: "stale.deadline.ui_matches_saved", status: "failed" },
         { name: "stale.repair.ui_matches_saved", status: "passed" },
       ];
+    case "stale-state-omit-then-repair":
+      return [
+        { name: "stateomit.deadline.ui_matches_saved", status: "failed" },
+        { name: "stateomit.repair.ui_matches_saved", status: "passed" },
+      ];
     case "missing-observer":
       return [{ name: "missing.deadline.ui_fields_match", status: "unknown" }];
     case "wrong-resource":
@@ -432,6 +437,7 @@ export function requiredToolForCase(caseId: UiSyncCaseId): string | null {
   switch (caseId) {
     case "healthy-update":
     case "stale-ui-then-repair":
+    case "stale-state-omit-then-repair":
     case "dirty-refusal":
       return "update_trip_draft";
     case "missing-observer":
@@ -491,6 +497,34 @@ export function evaluateEvidenceGate(
         return {
           ok: false,
           detail: "missing required stale repair pass in owned artifact",
+        };
+      }
+      continue;
+    }
+    if (req.name === "stateomit.deadline.ui_matches_saved") {
+      const a = findPersistedOutcome(persisted.outcomes, req.name);
+      const b = findPersistedOutcome(
+        persisted.outcomes,
+        "stateomit.deadline.ui_fields_match",
+      );
+      if (a !== "failed" && b !== "failed") {
+        return {
+          ok: false,
+          detail: "missing required state-omit deadline failure in owned artifact",
+        };
+      }
+      continue;
+    }
+    if (req.name === "stateomit.repair.ui_matches_saved") {
+      const a = findPersistedOutcome(persisted.outcomes, req.name);
+      const b = findPersistedOutcome(
+        persisted.outcomes,
+        "stateomit.repair.ui_fields_match",
+      );
+      if (a !== "passed" && b !== "passed") {
+        return {
+          ok: false,
+          detail: "missing required state-omit repair pass in owned artifact",
         };
       }
       continue;
@@ -558,7 +592,7 @@ export function evaluateEvidenceGate(
       rule.startsWith("outcome") ||
       /\bobservation\b/.test(msg);
 
-    if (caseId === "stale-ui-then-repair") {
+    if (caseId === "stale-ui-then-repair" || caseId === "stale-state-omit-then-repair") {
       return !isObservationFinding;
     }
     if (caseId === "missing-observer") {
@@ -643,18 +677,25 @@ export function scoreLaneBPerOp(input: {
   const deadline = input.deadlineFacts ?? [];
   const repair = input.repairFacts ?? [];
 
-  if (input.caseId === "stale-ui-then-repair") {
+  if (
+    input.caseId === "stale-ui-then-repair" ||
+    input.caseId === "stale-state-omit-then-repair"
+  ) {
     const deadlineFailed = deadline.some(
       (f) => f.name === "ui_matches_saved" && f.verdict === "failed",
     );
     const repairOk =
       repair.length > 0 && repair.every((f) => f.verdict === "passed");
     const ok = deadlineFailed && repairOk;
+    const via =
+      input.caseId === "stale-state-omit-then-repair"
+        ? "omitted state apply"
+        : "injected DOM mismatch";
     return {
       lane: "B",
       verdict: ok ? "pass" : "fail",
       detail: ok
-        ? "deadline detected injected mismatch; repair facts passed"
+        ? `deadline detected ${via}; repair facts passed`
         : "per-op facts did not show deadline fail + repair pass",
     };
   }
@@ -841,7 +882,10 @@ export function operationVerdictFromPhases(input: {
       deadline.length > 0 && deadline.every((f) => f.verdict === "passed");
     return ok ? "refused" : "unmet";
   }
-  if (input.caseId === "stale-ui-then-repair") {
+  if (
+    input.caseId === "stale-ui-then-repair" ||
+    input.caseId === "stale-state-omit-then-repair"
+  ) {
     const deadlineFailed = (input.deadlineFacts ?? []).some(
       (f) => f.name === "ui_matches_saved" && f.verdict === "failed",
     );
@@ -947,6 +991,8 @@ export function expectedFinalDomForCase(
       return { destination: "SFO" };
     case "dirty-refusal":
       return { destination: "SFO" };
+    case "stale-state-omit-then-repair":
+      return { destination: "LAX" };
     case "missing-observer":
     case "wrong-resource":
       return null;

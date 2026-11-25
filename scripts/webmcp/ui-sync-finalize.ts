@@ -9,6 +9,8 @@ export const EXPECTED_UI_SYNC_CASE_IDS = [
   "missing-observer",
   "wrong-resource",
   "dirty-refusal",
+  /** Backend commit succeeds; app omits applying receipt to shared state until repair. */
+  "stale-state-omit-then-repair",
 ] as const;
 
 export type UiSyncCaseId = (typeof EXPECTED_UI_SYNC_CASE_IDS)[number];

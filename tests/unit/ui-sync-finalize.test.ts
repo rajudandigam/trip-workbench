@@ -7,7 +7,7 @@ import {
 } from "../../scripts/webmcp/ui-sync-finalize.js";
 
 describe("ui-sync finalize", () => {
-  it("healthy pass + later timeout => nonzero with all five cases and error retained", () => {
+  it("healthy pass + later timeout => nonzero with all expected cases and error retained", () => {
     const result = finalizeUiSyncMatrix({
       reported: [{ id: "healthy-update", status: "pass" }],
       activeCaseId: "stale-ui-then-repair",
@@ -15,7 +15,7 @@ describe("ui-sync finalize", () => {
     });
     expect(result.exitCode).not.toBe(0);
     expect(result.ok).toBe(false);
-    expect(result.cases).toHaveLength(5);
+    expect(result.cases).toHaveLength(EXPECTED_UI_SYNC_CASE_IDS.length);
     expect(result.cases.map((c) => c.id)).toEqual([...EXPECTED_UI_SYNC_CASE_IDS]);
     expect(result.cases.find((c) => c.id === "healthy-update")?.status).toBe(
       "pass",
@@ -26,7 +26,12 @@ describe("ui-sync finalize", () => {
     });
     expect(
       result.cases.filter((c) => c.status === "not_run").map((c) => c.id),
-    ).toEqual(["missing-observer", "wrong-resource", "dirty-refusal"]);
+    ).toEqual([
+      "missing-observer",
+      "wrong-resource",
+      "dirty-refusal",
+      "stale-state-omit-then-repair",
+    ]);
   });
 
   it("all cases pass + flush failure => nonzero", () => {
@@ -52,8 +57,10 @@ describe("ui-sync finalize", () => {
       ],
     });
     expect(result.exitCode).not.toBe(0);
-    expect(result.cases).toHaveLength(5);
-    expect(result.cases.filter((c) => c.status === "not_run").length).toBe(3);
+    expect(result.cases).toHaveLength(EXPECTED_UI_SYNC_CASE_IDS.length);
+    expect(result.cases.filter((c) => c.status === "not_run").length).toBe(
+      EXPECTED_UI_SYNC_CASE_IDS.length - 2,
+    );
   });
 
   it("duplicate case id => nonpass", () => {
@@ -65,6 +72,7 @@ describe("ui-sync finalize", () => {
         { id: "missing-observer", status: "pass" },
         { id: "wrong-resource", status: "pass" },
         { id: "dirty-refusal", status: "pass" },
+        { id: "stale-state-omit-then-repair", status: "pass" },
       ],
     });
     expect(result.duplicateIds).toContain("healthy-update");
@@ -86,7 +94,7 @@ describe("ui-sync finalize", () => {
     expect(scored.ok).toBe(false);
   });
 
-  it("exactly five passes and no fatal/finalization error => exit 0", () => {
+  it("all expected passes and no fatal/finalization error => exit 0", () => {
     const reported = EXPECTED_UI_SYNC_CASE_IDS.map((id) => ({
       id,
       status: "pass" as const,

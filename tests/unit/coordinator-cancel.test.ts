@@ -280,3 +280,48 @@ describe("cancellation and outcome recovery", () => {
     expect(postCount).toBe(1);
   });
 });
+
+describe("omitConfirmedStateApply test hook", () => {
+  it("returns ok without advancing local shared state after a successful PATCH", async () => {
+    const fetchImpl = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/draft-a") && !init?.method) {
+        return { ok: true as const, data: tripView(1) };
+      }
+      if (init?.method === "PATCH") {
+        return {
+          ok: true as const,
+          data: {
+            outcome: "applied",
+            toRevision: 2,
+            tripId: "draft-a",
+            commandId: "omit-1",
+            fields: {
+              ...defaultTripFields(),
+              destination: "LAX",
+              purpose: "Workshop",
+            } satisfies TripFields,
+            status: "draft" as const,
+          },
+        };
+      }
+      throw new Error(path);
+    });
+
+    const g = globalThis as unknown as {
+      __TW_TEST_HOOKS__?: { omitConfirmedStateApply?: boolean };
+    };
+    g.__TW_TEST_HOOKS__ = { omitConfirmedStateApply: true };
+    try {
+      const coordinator = createCoordinator({ fetchImpl: fetchImpl as never });
+      await coordinator.openDraft("draft-a");
+      const before = coordinator.getState().localFields?.destination;
+      const res = await coordinator.applyAgentPatch({ destination: "LAX" }, 1, "omit-1");
+      expect(res.ok).toBe(true);
+      expect(coordinator.getState().savedDraft?.revision).toBe(1);
+      expect(coordinator.getState().localFields?.destination).toBe(before);
+      expect(coordinator.getState().saving).toBe(false);
+    } finally {
+      delete g.__TW_TEST_HOOKS__;
+    }
+  });
+});

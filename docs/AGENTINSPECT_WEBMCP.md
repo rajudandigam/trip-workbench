@@ -72,6 +72,7 @@ must be accounted for; a runtime or writer-finalization failure cannot exit 0.
 | missing-observer | Unknown / nonpass | synthetic control inside native harness |
 | wrong-resource | Binding fail | synthetic control inside native harness |
 | dirty-refusal | `USER_EDIT_IN_PROGRESS` + zero PATCH | native |
+| stale-state-omit-then-repair | Backend commit succeeds; test hook omits applying the receipt to shared editor state; deadline UI stays stale; `get_trip_draft` repair syncs | test-only `__TW_TEST_HOOKS__.omitConfirmedStateApply` — closer to omitted invalidation than DOM `.value` rewrite |
 
 Without Chrome, every case is **not_run** (exit 2). Do not claim pass. Partial
 execution after some passes must exit nonzero with remaining cases `not_run`.
@@ -129,27 +130,27 @@ train unless a demonstrated defect requires a later verified package. Optional
 external DOM evaluator (Google WebMCP Evals) remains comparison-only. Spec:
 [WebMCP_Cursor_Plan_and_Prompts_2026-11-23.md](./WebMCP_Cursor_Plan_and_Prompts_2026-11-23.md).
 
-### Validation snapshot (this host — 2026-11-23)
+### Validation snapshot (this host — 2026-11-25)
 
 | Anchor | Value |
 | --- | --- |
-| Trip | main + T1–T3 ownership/gating/semantics (untracked `evals/evidence/native-smoke-*.json` ignored) |
+| Trip | main + evidence-gate parse/`fail` fix + `stale-state-omit-then-repair` fixture |
 | `agent-inspect` (registry pin) | **6.31.41** |
 | `puppeteer-core` | 25.16.0 |
-| `TW_CHROME_BIN` | unset — native blocked |
+| `TW_CHROME_BIN` | set to stock Google Chrome — tools never became ready |
 
 | Gate | Exit | Notes |
 | --- | --- | --- |
-| `npm run test:unit` | 0 | includes ownership real-writer regression |
+| `npm run test:unit` | 0 | includes ownership, gate `fail` status, state-omit hook |
 | `npm run typecheck` | 0 | |
-| `npm run test:webmcp-ui-sync-evidence` | 2 | five cases `not_run`; A/B/C `not_scored` |
-| `npm run test:webmcp-evidence` | 2 | mandatory native blocked |
+| `npm run test:webmcp-ui-sync-evidence` (with `TW_CHROME_BIN`) | 1 | six cases `not_run`; `native=fail`; fatal `Timed out: tools ready` — **not** a pass |
+| Without WebMCP-capable Chromium | 2 | cases remain `not_run` / blocked |
 
-**T4 native packet (2026-11-23):** `TW_CHROME_BIN` unset → UI-sync exit **2**, five
-cases `not_run`, A/B/C `not_scored`, seedRunId=`ui-sync-seed`. Strict
-`test:webmcp-evidence` exit **2** (mandatory native blocked). Versions:
-`agent-inspect@6.31.41`, `puppeteer-core@25.16.0`. No polyfill/direct-handler
-substitution. Native acceptance remains incomplete.
+**Native packet (2026-11-25):** Stock Chrome binary launches but `document.modelContext` /
+`page.webmcp` tools did not settle (`Timed out: tools ready`). All six matrix cases
+`not_run`, A/B/C `not_scored`. Do not claim native success. A WebMCP-capable Chromium
+build is still required. No AgentInspect adapter extracted — fixture + gate repair
+used existing public writer/CLI APIs.
 
 ## Related AgentInspect recipe
 
