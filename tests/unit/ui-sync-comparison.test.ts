@@ -12,6 +12,7 @@ import {
   locateOwnedTrace,
   locateWrittenTraceByMtime,
   operationVerdictFromPhases,
+  parseCheckJson,
   readPersistedOutcomes,
   resolveTraceForRun,
   runIdForCase,
@@ -20,8 +21,34 @@ import {
   scoreLaneAFinalDom,
   scoreLaneBPerOp,
   scoreLaneCFromPersisted,
+  type PersistedCliEvidenceResult,
+  type PersistedOutcome,
 } from "../../scripts/webmcp/ui-sync-comparison.js";
 import type { SyncFact } from "../../scripts/webmcp/ui-sync-observer.js";
+
+function gateInput(
+  overrides: Partial<PersistedCliEvidenceResult> & {
+    outcomes: PersistedOutcome[];
+  },
+): PersistedCliEvidenceResult {
+  return {
+    runId: runIdForCase("stale-ui-then-repair"),
+    traceFile: "/tmp/fake.jsonl",
+    evidenceDir: "/tmp/evidence",
+    checkExit: 1,
+    verifyExit: 0,
+    checkStdoutRaw: "",
+    verifyStdoutRaw: "",
+    checkStdoutPreview: "",
+    verifyStdoutPreview: "",
+    checkJson: { ok: false, findings: [] },
+    checkParseError: null,
+    cliError: null,
+    missingArtifact: false,
+    outputOverflow: false,
+    ...overrides,
+  };
+}
 
 function fact(
   name: string,
@@ -223,6 +250,81 @@ describe("ui-sync A/B/C comparison", () => {
     expect(result.traceFile).toBeNull();
     expect(evaluateEvidenceGate("healthy-update", result).ok).toBe(false);
   });
+
+  it("parseCheckJson selects the outer report, not an inner nested object", () => {
+    const nested = JSON.stringify({
+      ok: false,
+      findings: [
+        {
+          ruleId: "tool.usage",
+          status: "fail",
+          message: "required tool deliberately_absent_tool missing",
+          detail: { nested: { ok: true, findings: [] } },
+        },
+      ],
+      summary: { nestedAgain: { ok: true } },
+    });
+    // Prefix noise + nested braces — lastIndexOf("{") would grab an inner object.
+    const stdout = `check progress\n${nested}\n`;
+    const parsed = parseCheckJson(stdout);
+    expect(parsed.error).toBeNull();
+    expect(parsed.json?.ok).toBe(false);
+    expect(parsed.json?.findings).toHaveLength(1);
+    expect(parsed.json?.findings?.[0]?.ruleId).toBe("tool.usage");
+    expect(parsed.json?.findings?.[0]?.status).toBe("fail");
+  });
+
+  it("evaluateEvidenceGate fails on CLI finding status fail (tool.usage)", () => {
+    const staleOutcomes: PersistedOutcome[] = [
+      { name: "stale.deadline.ui_matches_saved", status: "failed" },
+      { name: "stale.repair.ui_matches_saved", status: "passed" },
+    ];
+    // Old bug: only matched status "failed"/"error", so status "fail" was ignored.
+    const withFailStatus = gateInput({
+      outcomes: staleOutcomes,
+      checkJson: {
+        ok: false,
+        findings: [
+          {
+            ruleId: "tool.usage",
+            status: "fail",
+            message: "Required tool deliberately_absent_tool was not used",
+          },
+          {
+            ruleId: "observation.failed",
+            status: "fail",
+            message: "observation stale.deadline.ui_matches_saved failed",
+          },
+        ],
+      },
+    });
+    const gate = evaluateEvidenceGate("stale-ui-then-repair", withFailStatus);
+    expect(gate.ok).toBe(false);
+    expect(gate.detail).toMatch(/tool\.usage/);
+  });
+
+  it("evaluateEvidenceGate accepts expected observation fail without unrelated findings", () => {
+    const gate = evaluateEvidenceGate(
+      "stale-ui-then-repair",
+      gateInput({
+        outcomes: [
+          { name: "stale.deadline.ui_matches_saved", status: "failed" },
+          { name: "stale.repair.ui_matches_saved", status: "passed" },
+        ],
+        checkJson: {
+          ok: false,
+          findings: [
+            {
+              ruleId: "observation.failed",
+              status: "fail",
+              message: "observation outcome failed",
+            },
+          ],
+        },
+      }),
+    );
+    expect(gate.ok).toBe(true);
+  });
 });
 
 describe("ui-sync case/run/artifact ownership (published writer)", () => {
@@ -332,5 +434,70 @@ describe("ui-sync case/run/artifact ownership (published writer)", () => {
     expect(locateOwnedTrace(traceDir, "ui-sync-nonexistent").missingArtifact).toBe(
       true,
     );
+  });
+
+  it("CLI required-tool miss yields finding status fail and gate rejects stale case", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tw-cli-gate-"));
+    const traceDir = path.join(root, "traces");
+    const evidenceDir = path.join(root, "evidence");
+    const writer = bufferedFileWriter({ dir: traceDir, flushIntervalMs: 20 });
+    const inspector = createInspector({
+      enabled: true,
+      writer,
+      traceDir,
+      silent: true,
+      capture: { onSuccess: "none", onError: "none" },
+    });
+
+    const staleId = runIdForCase("stale-ui-then-repair");
+    await inspector.run(
+      "stale",
+      async () => {
+        await inspector.observeOutcome("stale.deadline.ui_matches_saved", {
+          expectation: "ui_matches_saved",
+          status: "failed",
+          method: "dom",
+          evidence: {},
+        });
+        await inspector.observeOutcome("stale.repair.ui_matches_saved", {
+          expectation: "ui_matches_saved",
+          status: "passed",
+          method: "dom",
+          evidence: {},
+        });
+      },
+      { runId: staleId },
+    );
+    await inspector.flush();
+    await inspector.close();
+
+    const persisted = runPersistedCliEvidence({
+      traceDir,
+      runId: staleId,
+      evidenceDir,
+      requiredTool: "deliberately_absent_tool",
+    });
+
+    expect(persisted.missingArtifact).toBe(false);
+    expect(persisted.checkParseError).toBeNull();
+    expect(persisted.checkJson).not.toBeNull();
+    expect(persisted.checkExit).not.toBe(0);
+
+    const failFindings = (persisted.checkJson?.findings ?? []).filter((f) =>
+      ["fail", "failed", "error"].includes((f.status ?? "").toLowerCase()),
+    );
+    expect(failFindings.length).toBeGreaterThan(0);
+    expect(
+      failFindings.some((f) =>
+        /tool\.usage|required.?tool|missing.?tool|deliberately_absent/i.test(
+          `${f.ruleId ?? ""} ${f.message ?? ""}`,
+        ),
+      ),
+    ).toBe(true);
+
+    // Parse succeeded but unrelated tool.usage must still fail the gate.
+    const gate = evaluateEvidenceGate("stale-ui-then-repair", persisted);
+    expect(gate.ok).toBe(false);
+    expect(gate.detail).toMatch(/unrelated check findings|tool\.usage/i);
   });
 });

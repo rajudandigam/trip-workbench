@@ -202,20 +202,87 @@ function defaultCliPath(): string {
   return path.resolve("node_modules/agent-inspect/packages/cli/dist/index.cjs");
 }
 
-function parseCheckJson(
+/**
+ * Extract the outermost JSON object from CLI stdout (optional prefix noise).
+ * Never select an inner `{` by lastIndexOf — nested reports would parse wrong.
+ */
+export function extractOutermostJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function isCheckJsonShape(
+  value: unknown,
+): value is { ok?: boolean; findings?: CheckFinding[] } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if ("ok" in obj && typeof obj.ok !== "boolean") return false;
+  if ("findings" in obj && obj.findings != null && !Array.isArray(obj.findings)) {
+    return false;
+  }
+  return true;
+}
+
+/** Parse agent-inspect `check --json` stdout into the outer report object. */
+export function parseCheckJson(
   stdout: string,
 ): { json: PersistedCliEvidenceResult["checkJson"]; error: string | null } {
   const trimmed = stdout.trim();
   if (!trimmed) return { json: null, error: "empty check stdout" };
-  // CLI may emit progress lines before JSON — take the last JSON object.
-  const start = trimmed.lastIndexOf("{");
-  if (start < 0) return { json: null, error: "no JSON object in check stdout" };
+
+  // Prefer whole-stdout parse when the CLI emitted only JSON.
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (!isCheckJsonShape(parsed)) {
+        return { json: null, error: "check JSON missing expected shape" };
+      }
+      return { json: parsed, error: null };
+    } catch {
+      // Fall through to outermost-object extraction for trailing noise.
+    }
+  }
+
+  const slice = extractOutermostJsonObject(trimmed);
+  if (slice == null) {
+    return { json: null, error: "no JSON object in check stdout" };
+  }
   try {
-    const json = JSON.parse(trimmed.slice(start)) as {
-      ok?: boolean;
-      findings?: CheckFinding[];
-    };
-    return { json, error: null };
+    const parsed: unknown = JSON.parse(slice);
+    if (!isCheckJsonShape(parsed)) {
+      return { json: null, error: "check JSON missing expected shape" };
+    }
+    return { json: parsed, error: null };
   } catch (error) {
     return {
       json: null,
@@ -470,28 +537,41 @@ export function evaluateEvidenceGate(
     }
   }
 
-  // Unrelated tool.usage / unexpected findings: if check JSON lists failures
-  // beyond the expected negative observation set, fail.
+  // CLI finding status is "fail" (severity may be "error"). OUTCOME status
+  // "failed" is a different vocabulary — do not conflate them.
   const findings = persisted.checkJson?.findings ?? [];
   const unexpected = findings.filter((f) => {
     const status = (f.status ?? "").toLowerCase();
-    if (status !== "failed" && status !== "error") return false;
-    const rule = f.ruleId ?? "";
-    const msg = f.message ?? "";
-    // Observation failures that match required negative controls are expected.
-    if (caseId === "stale-ui-then-repair" && /observation|outcome/i.test(rule + msg)) {
+    if (status !== "fail" && status !== "failed" && status !== "error") {
       return false;
     }
-    if (caseId === "missing-observer" && /observation|outcome|unknown/i.test(rule + msg)) {
-      return false;
+    const rule = (f.ruleId ?? "").toLowerCase();
+    const msg = (f.message ?? "").toLowerCase();
+    const blob = `${rule} ${msg}`;
+
+    // tool.usage / required-tool failures are never expected for these controls.
+    if (/tool\.usage|required.?tool|missing.?tool/.test(blob)) return true;
+
+    // Allow only observation-check findings that match the case's negative control.
+    const isObservationFinding =
+      rule.includes("observation") ||
+      rule.startsWith("outcome") ||
+      /\bobservation\b/.test(msg);
+
+    if (caseId === "stale-ui-then-repair") {
+      return !isObservationFinding;
     }
-    if (caseId === "wrong-resource" && /observation|outcome|binding/i.test(rule + msg)) {
-      return false;
+    if (caseId === "missing-observer") {
+      return !(isObservationFinding || /unknown/.test(blob));
     }
-    if (caseId === "healthy-update") return true;
-    // tool.usage / required-tool failures are never expected for synthetic controls
-    if (/tool\.usage|required.?tool|missing.?tool/i.test(rule + msg)) return true;
-    return false;
+    if (caseId === "wrong-resource") {
+      return !(isObservationFinding || /binding/.test(blob));
+    }
+    if (caseId === "dirty-refusal") {
+      return !isObservationFinding;
+    }
+    // healthy-update (and any other): every failing finding is unexpected.
+    return true;
   });
   if (unexpected.length > 0) {
     return {
